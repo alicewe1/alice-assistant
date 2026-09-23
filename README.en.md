@@ -119,6 +119,8 @@ Licensed under **[CC BY-NC-SA 4.0](LICENSE)** (Attribution-NonCommercial-ShareAl
 
 > **This is not an open source license.** The NonCommercial term conflicts with the Open Source Definition, so this project is **source-available**, not open source.
 
+> **Scope**: this license covers **only the parts originally created by alicewe1** — the application, the client presets, the original skill pack, and the documentation in this repository. The distribution bundles third-party components, each governed by its own license; see `THIRD-PARTY-NOTICES.md` inside the distribution for the full list and attribution requirements. Third-party licenses take precedence. In particular, the OpenAI Codex / ChatGPT desktop app is **proprietary and carries no redistribution right** — it must not be redistributed with this work without separate authorization.
+
 **When referencing this project or building on it, keep this attribution:**
 
 ```
