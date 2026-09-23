@@ -10,17 +10,16 @@
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-1D9E75?style=flat-square)
 
-<br/>
-
-### **[简体中文](#简体中文)** &nbsp;·&nbsp; [English](#english)
+<sub>点标题栏切换语言 / Click a header to switch language</sub>
 
 </div>
 
 ---
 
-## 简体中文
+<details open>
+<summary><b>简体中文</b></summary>
 
-<p align="right"><a href="#english">English →</a></p>
+<br/>
 
 ### 这是什么
 
@@ -99,13 +98,12 @@ npm run release      # 生产构建
 
 [MIT](LICENSE)
 
-<p align="right"><a href="#english">English →</a></p>
+</details>
 
----
+<details>
+<summary><b>English</b></summary>
 
-## English
-
-<p align="right"><a href="#简体中文">← 简体中文</a></p>
+<br/>
 
 ### What it is
 
@@ -184,14 +182,10 @@ npm run release      # production build
 
 [MIT](LICENSE)
 
-<p align="right"><a href="#简体中文">← 简体中文</a></p>
+</details>
 
 ---
 
 <div align="center">
-
-**[简体中文](#简体中文)** &nbsp;·&nbsp; [English](#english)
-
-<sub>MIT Licensed · Built with Tauri + Rust + React</sub>
-
+  <sub>MIT Licensed · Built with Tauri + Rust + React</sub>
 </div>
