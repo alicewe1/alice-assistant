@@ -8,7 +8,7 @@
 
 ![status](https://img.shields.io/badge/status-work%20in%20progress-orange?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
-![license](https://img.shields.io/badge/license-MIT-1D9E75?style=flat-square)
+![license](https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-EF9421?style=flat-square)
 
 [English](README.en.md) · **简体中文**
 
@@ -107,7 +107,22 @@ npm run release      # 生产构建
 
 ### 许可
 
-[MIT](LICENSE)
+本项目采用 **[CC BY-NC-SA 4.0](LICENSE)**（署名 — 非商业性使用 — 相同方式共享 4.0 国际）许可。
+
+| 你可以 | 你必须 | 你不可以 |
+|---|---|---|
+| 复制、分发本作品 | 署名 **alicewe1** 并附许可协议链接 | **将本作品用于商业目的** |
+| 修改、二次创作 | 标明是否作出了修改 | 附加额外的法律或技术限制 |
+| 基于它做衍生作品 | 衍生作品必须沿用同一许可 | 用技术手段阻止他人做许可允许的事 |
+
+> **这不是开源许可。** 「非商业性使用」与 OSI 的开源定义冲突，所以本项目属于 **source-available（源码可见）**，不是开源项目。
+
+**引用本项目或做衍生作品时，请保留以下署名：**
+
+```
+Alice 助手 / Alice Assistant — https://github.com/alicewe1/alice-assistant
+Copyright (c) 2026 alicewe1 — Licensed under CC BY-NC-SA 4.0
+```
 
 ---
 
