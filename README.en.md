@@ -120,7 +120,7 @@ Licensed under the **[GNU General Public License v3.0](LICENSE)** (GPL-3.0-or-la
 
 > **This IS an open source license.** GPL-3.0 is OSI-approved free software — **commercial use is permitted**. The obligation is **copyleft**: when you distribute a derivative work, it must also be licensed under the GPL, with complete source code.
 
-> **Scope**: this license covers **only the parts originally created by alicewe1** — the application, the client presets, the original skill pack, and the documentation in this repository. The distribution bundles third-party components, each governed by its own license; see `THIRD-PARTY-NOTICES.md` inside the distribution for the full list and attribution requirements. Third-party licenses take precedence. In particular, the OpenAI Codex / ChatGPT desktop app is **proprietary and carries no redistribution right** — it must not be redistributed with this work without separate authorization.
+> **Scope**: this license covers **only the parts originally created by alicewe1** — the application, the client presets, the original skill pack, and the documentation in this repository. The distribution bundles third-party components, each governed by its own license; see `THIRD-PARTY-NOTICES.md` inside the distribution for the full list and attribution requirements. Third-party licenses take precedence. In particular, the OpenAI Codex / ChatGPT desktop app is **proprietary and carries no redistribution right** — it must not be redistributed with this work without separate authorization. See [`NOTICE`](NOTICE) for the full statement.
 
 **When referencing this project or building on it, keep this attribution:**
 
