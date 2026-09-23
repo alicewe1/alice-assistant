@@ -7,6 +7,61 @@ Copyright (c) 2026 alicewe1
 This work is licensed under the Creative Commons
 Attribution-NonCommercial-ShareAlike 4.0 International License.
 
+适用范围 / Scope of this License
+=======================================================================
+本许可协议**仅适用于 alicewe1 原创的部分**。
+This license applies ONLY to the parts originally created by alicewe1.
+
+【本许可覆盖 / Covered by this license】
+  * 主程序源码与构建产物
+      the application source code and build artifacts
+  * resources/profiles/          客户端预设与版本清单
+  * resources/_assets/skill/Alice/   原创技能包
+      (entries marked "custom": true in pack.json)
+  * README.md / README.en.md 及仓库内的原创文档
+      the original documentation in this repository
+
+【本许可不覆盖 / NOT covered by this license】
+  本分发包内含第三方组件，它们各自受其自身许可协议约束。
+  完整的组件清单、版本、许可与署名要求见：
+      THIRD-PARTY-NOTICES.md
+
+  This distribution bundles third-party components, each governed by its
+  own license. See THIRD-PARTY-NOTICES.md for the full list of components,
+  their versions, licenses, and attribution requirements.
+
+  第三方组件的许可条款优先于本许可。对于第三方组件，
+  alicewe1 既不授予任何权利，也不代表其权利人行事。
+
+  Third-party licenses take precedence over this license. alicewe1 grants
+  no rights in third-party components and does not act on behalf of their
+  rights holders.
+
+【再分发限制 / Redistribution restrictions】
+  下列组件**不得**随本作品一并再分发，除非另行取得权利人授权：
+  The following components MUST NOT be redistributed with this work unless
+  separate authorization is obtained from their rights holders:
+
+    * OpenAI Codex / ChatGPT 桌面端 —— 专有软件，未授予再分发权
+        the OpenAI Codex / ChatGPT desktop app (proprietary)
+    * 未声明许可的第三方提示词与技能包
+        third-party prompt and skill packs that declare no license
+
+  详见 THIRD-PARTY-NOTICES.md。
+  See THIRD-PARTY-NOTICES.md for details.
+
+【关于软件适用性 / On software applicability】
+  Creative Commons 官方明确建议不要将 CC 系列许可用于软件，
+  因其不包含专利授权等软件许可通常需要的条款。
+  本作品选择 CC BY-NC-SA 4.0 是为了表达「禁止商业使用」与
+  「衍生作品须沿用同一许可」两项要求；如需更贴合软件的分发条款，
+  请以权利人后续发布的版本为准。
+
+  Creative Commons advises against using its licenses for software, as they
+  lack terms software licensing normally needs (such as a patent grant).
+  CC BY-NC-SA 4.0 was chosen here to express two requirements: no commercial
+  use, and share-alike for derivative works.
+
 许可摘要 / Summary
 -----------------------------------------------------------------------
 您可以自由地 / You are free to:
