@@ -39,7 +39,7 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 | **Bundled portable Codex** | Codex runtime and the official desktop app ship in the package — works out of the box, no system install required |
 | **Environment isolation** | Child processes get redirected `CODEX_HOME` / `APPDATA` / `LOCALAPPDATA` / `TEMP` / `PATH`; your real user configuration is never touched |
 | **Path-agnostic** | Resolved by probing env var → bundle layout → resource dir → dev fallback. No hardcoded drive letters, no config edits when you move the folder |
-| **Idempotent writes** | Marked-block replacement semantics: only the tool's own block is rewritten, your hand-written config is preserved, and a backup is taken before the first change |
+| **Whole-file takeover** | One uniform rule for every client: the existing file is renamed to `-bak` first, then the rendered content is written in full. Reinstalling never accumulates, and uninstalling means deleting the file and restoring the `-bak` |
 
 ---
 
@@ -57,14 +57,16 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 
 ### Supported clients
 
-| Client | Write mode |
+Write semantics are **uniform** across all clients: whole-file takeover — the existing file is renamed to `-bak`, then the rendered content is written in full. There is no per-client write mode.
+
+| Client | Injection target |
 |---|---|
-| Codex | Marked-block replacement |
-| DSH | Marked-block replacement |
-| Claude | Four-branch handling (replace block / whole file / keep evidence / append) |
-| Cursor | Full overwrite (with backup) |
-| ZCode | Full overwrite (with backup) |
-| WorkBuddy | Full overwrite (with backup) |
+| Codex | `~/.codex/AGENTS.md` |
+| DSH | `~/.dsh/AGENTS.md` |
+| Claude | `~/.claude/CLAUDE.md` |
+| Cursor | `~/.cursor/rules/<name>.mdc` |
+| ZCode | `~/.zcode/AGENTS.md` |
+| WorkBuddy | `~/.workbuddy-ai/AGENTS.md` |
 | **Custom** | Your own prompt file + skill folder + target folder — any client |
 
 ---
