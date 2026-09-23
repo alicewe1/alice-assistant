@@ -8,7 +8,7 @@ A portable desktop tool that decouples prompts, skill packs, and clients — com
 
 ![status](https://img.shields.io/badge/status-work%20in%20progress-orange?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
-![license](https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-EF9421?style=flat-square)
+![license](https://img.shields.io/badge/license-GPL--3.0--or--later-185FA5?style=flat-square)
 
 **English** · [简体中文](README.md)
 
@@ -109,15 +109,16 @@ npm run release      # production build
 
 ### License
 
-Licensed under **[CC BY-NC-SA 4.0](LICENSE)** (Attribution-NonCommercial-ShareAlike 4.0 International).
+Licensed under the **[GNU General Public License v3.0](LICENSE)** (GPL-3.0-or-later).
 
 | You may | You must | You may not |
 |---|---|---|
-| Copy and redistribute the work | Credit **alicewe1** and link the license | **Use it commercially** |
-| Modify and build upon it | Indicate whether changes were made | Add legal or technical restrictions |
-| Create derivative works | License derivatives under the same terms | Use technical measures to block permitted uses |
+| Run the program for any purpose | Ship the license and copyright notice when distributing | Add extra restrictions to derivative works |
+| Modify and build upon it | Indicate whether changes were made | Use technical measures to block permitted uses |
+| Copy and redistribute | **License derivatives under the GPL and provide complete corresponding source** | Merge the program into proprietary software you redistribute |
+| **Use it commercially** | Keep the original copyright and license notices | |
 
-> **This is not an open source license.** The NonCommercial term conflicts with the Open Source Definition, so this project is **source-available**, not open source.
+> **This IS an open source license.** GPL-3.0 is OSI-approved free software — **commercial use is permitted**. The obligation is **copyleft**: when you distribute a derivative work, it must also be licensed under the GPL, with complete source code.
 
 > **Scope**: this license covers **only the parts originally created by alicewe1** — the application, the client presets, the original skill pack, and the documentation in this repository. The distribution bundles third-party components, each governed by its own license; see `THIRD-PARTY-NOTICES.md` inside the distribution for the full list and attribution requirements. Third-party licenses take precedence. In particular, the OpenAI Codex / ChatGPT desktop app is **proprietary and carries no redistribution right** — it must not be redistributed with this work without separate authorization.
 
@@ -125,7 +126,7 @@ Licensed under **[CC BY-NC-SA 4.0](LICENSE)** (Attribution-NonCommercial-ShareAl
 
 ```
 Alice Assistant — https://github.com/alicewe1/alice-assistant
-Copyright (c) 2026 alicewe1 — Licensed under CC BY-NC-SA 4.0
+Copyright (C) 2026 alicewe1 — Licensed under GNU GPL v3.0 or later
 ```
 
 ---
