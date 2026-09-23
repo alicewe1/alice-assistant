@@ -8,7 +8,7 @@
 
 ![status](https://img.shields.io/badge/status-work%20in%20progress-orange?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
-![license](https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-EF9421?style=flat-square)
+![license](https://img.shields.io/badge/license-GPL--3.0--or--later-185FA5?style=flat-square)
 
 [English](README.en.md) · **简体中文**
 
@@ -109,15 +109,16 @@ npm run release      # 生产构建
 
 ### 许可
 
-本项目采用 **[CC BY-NC-SA 4.0](LICENSE)**（署名 — 非商业性使用 — 相同方式共享 4.0 国际）许可。
+本项目采用 **[GNU 通用公共许可协议第 3 版](LICENSE)**（GPL-3.0-or-later）许可。
 
 | 你可以 | 你必须 | 你不可以 |
 |---|---|---|
-| 复制、分发本作品 | 署名 **alicewe1** 并附许可协议链接 | **将本作品用于商业目的** |
-| 修改、二次创作 | 标明是否作出了修改 | 附加额外的法律或技术限制 |
-| 基于它做衍生作品 | 衍生作品必须沿用同一许可 | 用技术手段阻止他人做许可允许的事 |
+| 以任何目的运行本程序 | 分发时附上许可协议与版权声明 | 对衍生作品附加额外限制 |
+| 修改、二次创作 | 标明是否作出了修改 | 用技术手段阻止他人行使许可权利 |
+| 复制、分发 | **衍生作品必须同样以 GPL 授权，并提供完整对应源码** | 将本程序并入闭源专有软件再分发 |
+| **用于商业目的** | 保留原有的版权与许可声明 | |
 
-> **这不是开源许可。** 「非商业性使用」与 OSI 的开源定义冲突，所以本项目属于 **source-available（源码可见）**，不是开源项目。
+> **这是开源许可。** GPL-3.0 通过 OSI 认证，属于自由软件许可 —— **商业使用是被允许的**。它的约束在于**传染性（copyleft）**：把衍生作品分发出去时，必须同样以 GPL 授权并提供完整源码。
 
 > **适用范围**：本许可**仅覆盖 alicewe1 原创的部分** —— 主程序、客户端预设、原创技能包与仓库内文档。分发包内含第三方组件，各自受其自身许可约束，相关清单与署名要求见分发包内的 `THIRD-PARTY-NOTICES.md`；第三方许可优先于本许可。其中 OpenAI Codex / ChatGPT 桌面端为**专有软件，未授予再分发权**，未经授权不得随本作品一并再分发。
 
@@ -125,7 +126,7 @@ npm run release      # 生产构建
 
 ```
 Alice 助手 / Alice Assistant — https://github.com/alicewe1/alice-assistant
-Copyright (c) 2026 alicewe1 — Licensed under CC BY-NC-SA 4.0
+Copyright (C) 2026 alicewe1 — Licensed under GNU GPL v3.0 or later
 ```
 
 ---
