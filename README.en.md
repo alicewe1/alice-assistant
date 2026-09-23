@@ -8,7 +8,7 @@ A portable desktop tool that decouples prompts, skill packs, and clients — com
 
 ![status](https://img.shields.io/badge/status-work%20in%20progress-orange?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
-![license](https://img.shields.io/badge/license-MIT-1D9E75?style=flat-square)
+![license](https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-EF9421?style=flat-square)
 
 **English** · [简体中文](README.md)
 
@@ -107,7 +107,22 @@ npm run release      # production build
 
 ### License
 
-[MIT](LICENSE)
+Licensed under **[CC BY-NC-SA 4.0](LICENSE)** (Attribution-NonCommercial-ShareAlike 4.0 International).
+
+| You may | You must | You may not |
+|---|---|---|
+| Copy and redistribute the work | Credit **alicewe1** and link the license | **Use it commercially** |
+| Modify and build upon it | Indicate whether changes were made | Add legal or technical restrictions |
+| Create derivative works | License derivatives under the same terms | Use technical measures to block permitted uses |
+
+> **This is not an open source license.** The NonCommercial term conflicts with the Open Source Definition, so this project is **source-available**, not open source.
+
+**When referencing this project or building on it, keep this attribution:**
+
+```
+Alice Assistant — https://github.com/alicewe1/alice-assistant
+Copyright (c) 2026 alicewe1 — Licensed under CC BY-NC-SA 4.0
+```
 
 ---
 
