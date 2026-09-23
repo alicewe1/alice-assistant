@@ -1,14 +1,18 @@
 <div align="center">
 
-# 新 alice 助手
+# Alice 助手
 
-**Alice Agent 客户端管理助手**
+**Agent 客户端管理助手**
 
-*Portable client manager for AI coding agents — prompts, skill packs, any client*
+*Portable client manager for AI coding agents*
 
 ![status](https://img.shields.io/badge/status-work%20in%20progress-orange?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-1D9E75?style=flat-square)
+
+<br/>
+
+### **[简体中文](#简体中文)** &nbsp;·&nbsp; [English](#english)
 
 </div>
 
@@ -16,9 +20,11 @@
 
 ## 简体中文
 
+<p align="right"><a href="#english">English →</a></p>
+
 ### 这是什么
 
-新 alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI 编码 Agent 的**提示词**和**技能库**。
+Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI 编码 Agent 的**提示词**和**技能库**。
 
 它把提示词、技能库、客户端三者解耦：任意提示词可以搭配任意技能库，投放到任意客户端。想换一套组合，界面上点一下就行，不需要手动翻目录、复制粘贴文件。
 
@@ -93,13 +99,17 @@ npm run release      # 生产构建
 
 [MIT](LICENSE)
 
+<p align="right"><a href="#english">English →</a></p>
+
 ---
 
 ## English
 
+<p align="right"><a href="#简体中文">← 简体中文</a></p>
+
 ### What it is
 
-New Alice Assistant is a portable Windows desktop tool for managing the **prompts** and **skill libraries** of AI coding agents.
+Alice Assistant is a portable Windows desktop tool for managing the **prompts** and **skill libraries** of AI coding agents.
 
 It decouples three things that are usually tangled together: prompts, skill packs, and clients. Any prompt can be paired with any skill pack and deployed to any client. Switching a combination takes one click in the UI — no manual directory browsing, no copy-pasting files.
 
@@ -174,8 +184,14 @@ npm run release      # production build
 
 [MIT](LICENSE)
 
+<p align="right"><a href="#简体中文">← 简体中文</a></p>
+
 ---
 
 <div align="center">
-  <sub>MIT Licensed · Built with Tauri + Rust + React</sub>
+
+**[简体中文](#简体中文)** &nbsp;·&nbsp; [English](#english)
+
+<sub>MIT Licensed · Built with Tauri + Rust + React</sub>
+
 </div>
