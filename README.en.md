@@ -39,7 +39,8 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 | **Bundled portable Codex** | The Codex runtime ships in the package — works out of the box, no system install required |
 | **Environment isolation** | Child processes get redirected `CODEX_HOME` / `APPDATA` / `LOCALAPPDATA` / `TEMP` / `PATH`; your real user configuration is never touched |
 | **Path-agnostic** | Resolved by probing env var → bundle layout → resource dir → dev fallback. No hardcoded drive letters, no config edits when you move the folder |
-| **Whole-file takeover** | One uniform rule for every client: the existing file is renamed to `-bak` first, then the rendered content is written in full. Reinstalling never accumulates, and uninstalling means deleting the file and restoring the `-bak` |
+| **In-app tutorial** | 6 of the feature pages (Targets / Skills / Prompts / Session / Alice-codex / Cloud) ship a step-by-step guided tour that dims the screen, highlights the element you should look at, and explains it; skip or replay at any time. Pages without a configured tour show no entry button |
+| **Backup-first writes** | Every client backs up the original first (renamed to `-bak` or `.bak-inject`) before the rendered content is written; uninstalling restores the backup. Whether reinstalling accumulates depends on the write mode — see "Supported clients" below |
 
 ---
 
@@ -50,24 +51,35 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 | Ships in the package | Runtime, dependencies, and private `APPDATA` / `TEMP` all live inside the bundle |
 | Random instance name | Each launch creates a random process image name (via a hard link, so it shares the same data and **costs no extra disk space**); the UI shows the current instance name so multiple instances stay distinguishable |
 | Automatic cleanup | The process is attached to a Job Object at creation, so the kernel reclaims the whole process tree when the main app exits — no leftovers |
-| One-click self-check | Checks runtime paths and integrity item by item, showing pass/fail with expandable detail |
+| One-click self-check | Verifies the 5 runtime items (config / codex runtime / desktop app / skill library / prompt library) and probes real versions (codex, adb, python), showing pass/fail with expandable detail |
 | Two forms | CLI (standalone console TUI) and the desktop app, each with its own config directory, isolated from any system-wide install |
 
 ---
 
 ### Supported clients
 
-Write semantics are **uniform** across all clients: whole-file takeover — the existing file is renamed to `-bak`, then the rendered content is written in full. There is no per-client write mode.
+Every client **backs up first**: the existing file is renamed to `-bak`, then the rendered content is written; uninstalling restores the `-bak`. The **write mode differs per client**, in three flavours:
+
+| Write mode | Semantics | Used by |
+|---|---|---|
+| `markedBlock` | Marker-block replacement: replace inside the block if present, otherwise append | Codex, DSH |
+| `overwrite` | Whole-file overwrite (no marker, not idempotent) | ZCode, Cursor, WorkBuddy |
+| `claudeBlock` | Four branches: block present → replace inside; empty/pure-prompt → whole file; leftovers → move aside for evidence; user content → back up once then append | Claude |
+
+Injection targets:
 
 | Client | Injection target |
 |---|---|
 | Codex | `~/.codex/AGENTS.md` |
-| DSH | `~/.dsh/AGENTS.md` |
+| ZCode | `~/.zcode/AGENTS.md`<br>`~/.zcode/cli/memories/global/memory/seagull-agents.md` (memory) |
+| Cursor | `~/.cursor/rules/<name>.mdc`<br>`~/.cursorrules` |
 | Claude | `~/.claude/CLAUDE.md` |
-| Cursor | `~/.cursor/rules/<name>.mdc` |
-| ZCode | `~/.zcode/AGENTS.md` |
-| WorkBuddy | `~/.workbuddy-ai/AGENTS.md` |
+| WorkBuddy | `~/.workbuddy-ai/memory/default_memory.md`<br>`~/.workbuddy-ai/MEMORY.md` |
+| DSH | `~/.dsh/AGENTS.md` |
 | **Custom** | Your own prompt file + skill folder + target folder — any client |
+
+> WorkBuddy does **not** write `AGENTS.md` — it goes through its cloud memory archive plus `MEMORY.md`, unlike the other clients.
+> The complete injection spec (markers, backup policy, skill destinations) lives in `src/lib/inject-spec.ts`.
 
 ---
 
@@ -79,13 +91,28 @@ A Tauri native shell with a React single-page interface. Prompt lists, skill lib
 
 ### Tech stack
 
+**Frontend** (`package.json`)
+
 | Layer | Choice |
 |---|---|
-| Desktop shell | Tauri 2 + Rust |
 | UI | React 19 + TypeScript 5.7 |
 | Bundler | Vite 6 |
 | Icons | lucide-react |
-| Extension mechanism | MCP (stdio) |
+| Tauri bindings | @tauri-apps/api 2.11 |
+
+**Backend** (`src-tauri/Cargo.toml`)
+
+| Layer | Choice |
+|---|---|
+| Desktop shell | Tauri 2 + Rust (edition 2021) |
+| Plugins | `tauri-plugin-shell` / `-dialog` / `-fs` |
+| Serialization | serde + serde_json |
+| Regex | regex |
+| HTTP | ureq (used by the cloud-audit proxy to forward upstream) |
+| Archive | zip (`deflate` only, for importing user-supplied skill packs) |
+| Encoding | base64 (session image upload) |
+
+The release profile uses `lto = true` / `codegen-units = 1` / `opt-level = "s"` / `strip = true` / `panic = "abort"` — portable distribution favours size.
 
 ---
 

@@ -48,7 +48,7 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 
 </div>
 
-每个页面右上角有**使用教程**：点开后整屏压暗、当前该看的元素被挖孔高亮，旁边气泡讲解这一步在做什么，逐步走完一个页面。下面是教程第 1 步的效果：
+6 个功能页的右上角有**使用教程**：点开后整屏压暗、当前该看的元素被挖孔高亮，旁边气泡讲解这一步在做什么，逐步走完一个页面。下面是教程第 1 步的效果：
 
 <div align="center">
 
@@ -71,8 +71,8 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 | **内置便携式 Codex** | 随包分发 Codex 运行时，开箱即用，不需要系统预装 |
 | **环境隔离** | 启动子进程时重定向 `CODEX_HOME` / `APPDATA` / `LOCALAPPDATA` / `TEMP` / `PATH`，不碰真实用户配置 |
 | **路径自适应** | 按 环境变量 → 分发形态 → 资源目录 → 开发兜底 逐级探测，不写死盘符，换机器不用改配置 |
-| **新手教程** | 每个功能页内置分步指引，高亮当前该操作的元素并说明用途，可随时跳过或重看 |
-| **整份接管写入** | 所有客户端统一：目标文件先改名为 `-bak` 保留原件，再整份写入渲染结果。重复安装不会叠加，卸载 = 删文件 + 还原 `-bak` |
+| **新手教程** | 6 个功能页（目标 / 技能库 / 提示词 / 会话 / Alice-codex / 云过审）内置分步指引，高亮当前该操作的元素并说明用途，可随时跳过或重看；未配教程的页面不显示入口按钮 |
+| **哈希留档备份** | 所有客户端统一先备份原件（改名为 `-bak` 或 `.bak-inject`），再写入渲染结果；卸载 = 还原备份。重复安装是否叠加取决于写入模式，见下方「支持的客户端」 |
 
 ---
 
@@ -83,36 +83,62 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 | 随包分发 | 运行时、依赖、私有 `APPDATA` / `TEMP` 全部在包内，不往系统里装东西 |
 | 随机实例名 | 每次启动生成随机进程镜像名（硬链接实现，与本体共享同一份数据，**不额外占磁盘**），界面显示当前实例名，多实例互不混淆 |
 | 自动回收 | 进程创建时即挂入 Job Object，主程序退出时由内核回收整棵进程树，不留残留进程 |
-| 一键自检 | 面板内置自检，逐项检查路径与运行时完整性，直接展示通过项与诊断明细 |
+| 一键自检 | 逐项体检 5 项运行时（配置 / codex 运行时 / 桌面端 / 技能库 / 提示词库），并真实探测 codex、adb、python 版本；通过项与诊断明细直接展示 |
 | 双形态 | CLI（独立控制台 TUI）与桌面端，各自独立配置目录，与系统已装版本互不干扰 |
 
 ---
 
 ## 支持的客户端
 
-写入语义对所有客户端**统一**：整份接管 —— 原文件先改名为 `-bak`，再把渲染好的内容整份写进去。不存在按客户端区分写入模式的情况。
+所有客户端**统一先备份**：目标文件改名为 `-bak` 保留原件，再写入渲染结果；卸载 = 还原 `-bak`。但**写入模式按客户端区分**三种：
+
+| 写入模式 | 语义 | 用在 |
+|---|---|---|
+| `markedBlock` | 标记块替换：块存在只换块内，否则追加 | Codex、DSH |
+| `overwrite` | 整份覆盖（无标记、无幂等） | ZCode、Cursor、WorkBuddy |
+| `claudeBlock` | 四分支：有块→换块内；空/纯提示词→整份；残渣→挪走留证；用户内容→首次备份后追加 | Claude |
+
+各客户端的注入落点：
 
 | 客户端 | 注入目标 |
 |---|---|
 | Codex | `~/.codex/AGENTS.md` |
-| DSH | `~/.dsh/AGENTS.md` |
+| ZCode | `~/.zcode/AGENTS.md`<br>`~/.zcode/cli/memories/global/memory/seagull-agents.md`（记忆） |
+| Cursor | `~/.cursor/rules/<名称>.mdc`<br>`~/.cursorrules` |
 | Claude | `~/.claude/CLAUDE.md` |
-| Cursor | `~/.cursor/rules/<名称>.mdc` |
-| ZCode | `~/.zcode/AGENTS.md` |
-| WorkBuddy | `~/.workbuddy-ai/AGENTS.md` |
+| WorkBuddy | `~/.workbuddy-ai/memory/default_memory.md`<br>`~/.workbuddy-ai/MEMORY.md` |
+| DSH | `~/.dsh/AGENTS.md` |
 | **自定义** | 自选「提示词文件 + 技能文件夹 + 目标文件夹」，接入任意客户端 |
+
+> WorkBuddy **不写 `AGENTS.md`** —— 它走云记忆档案 + `MEMORY.md`，与其它客户端不同。
+> 完整注入规格（标记串、备份策略、技能落点）见 `src/lib/inject-spec.ts`。
 
 ---
 
 ## 技术栈
 
+**前端**（`package.json`）
+
 | 层 | 选型 |
 |---|---|
-| 桌面外壳 | Tauri 2 + Rust |
 | 界面 | React 19 + TypeScript 5.7 |
 | 构建 | Vite 6 |
 | 图标 | lucide-react |
-| 扩展机制 | MCP（stdio） |
+| Tauri 绑定 | @tauri-apps/api 2.11 |
+
+**后端**（`src-tauri/Cargo.toml`）
+
+| 层 | 选型 |
+|---|---|
+| 桌面外壳 | Tauri 2 + Rust（edition 2021） |
+| 插件 | `tauri-plugin-shell` / `-dialog` / `-fs` |
+| 序列化 | serde + serde_json |
+| 正则 | regex |
+| HTTP | ureq（云过审转发上游用） |
+| 解压 | zip（仅开 `deflate`，用于导入用户自备的技能包） |
+| 编码 | base64（会话图片上传） |
+
+Release 侧开了 `lto = true` / `codegen-units = 1` / `opt-level = "s"` / `strip = true` / `panic = "abort"` —— 便携分发优先体积。
 
 Tauri 原生外壳 + React 单页界面。提示词列表、技能库、版本清单、运行时控制、自检结果、实时日志都在同一屏里完成，状态直接可见，不用去翻日志文件。
 
