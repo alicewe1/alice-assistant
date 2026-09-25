@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Alice 主窗口能力：核心 IPC + shell/dialog/fs 插件",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:path:default",
+    "shell:default",
+    "dialog:default",
+    "fs:default"
+  ]
+}

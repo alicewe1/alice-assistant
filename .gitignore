@@ -1,0 +1,42 @@
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 本机调试产物（截图、探针、临时文件）----
+_tmp/
+*.log
+codex-*.txt
+*.stdout.log
+*.stderr.log
+
+# 设计评审期的对比截图（非源码）
+_*.png
+
+# ---- 密钥与凭据：绝不入库 ----
+# Tauri 的 config.toml / auth.json 可能含 API Key；
+# 本项目源码本身不含密钥，这条是给将来加配置时兜底。
+.env
+.env.*
+*.pem
+*.key
+auth.json
+api_key.txt
+
+# ---- 后端源码的历史备份（保留在本机，不入库）----
+# 这些是 *.rs 的改名备份，内容与正式文件重复，只是本机回滚用。
+src-tauri/src/*.bak
+src-tauri/src/*.bak-*
+src-tauri/src/*.before-*
+src-tauri/src/*.presync
+src-tauri/src/*.reanchor.bak

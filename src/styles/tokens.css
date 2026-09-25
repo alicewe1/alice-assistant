@@ -1,0 +1,5020 @@
+/* ============================================================
+   ALICE · BENCH-01 设计系统
+   立场：仪器台美学 —— 纸感白 / 油墨黑 / 信号橙 / 等宽标注 /
+   发丝线分割 / 苹果式透明玻璃（贴满全界面，不只是顶栏与弹窗）
+
+   ── 玻璃分层（改样式前先读这张表）────────────────────────
+     变量组        用途                      透明度      模糊
+     --surf-*      页内薄玻璃（卡片/控件）    α≈0.55     20px
+     --pane-*      悬浮厚玻璃（弹窗/抽屉/顶栏）α≈0.66~0.78 34px
+     --glass-strong 用 --pane-*（弹窗）
+     --glass       用 --surf-*（页内）
+     --veil        遮罩：只压暗，不带模糊
+
+   ── 两个主题共用同一套结构，只在 :root / [data-theme=dark] 换色值 ──
+   亮色下**必须用暗描边**（白边压白底 = 没有边界），
+   暗色下反过来用亮描边。这是「看起来像不像玻璃」的关键。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* 纸与油墨 */
+  --paper: #fbfbf8;
+  --paper-raw: 251, 251, 248;
+  --panel: #ffffff;
+  --ink: #101013;
+  --ink-raw: 16, 16, 19;
+  --muted: rgba(16, 16, 19, 0.56);
+  --faint: rgba(16, 16, 19, 0.34);
+  --hairline: rgba(16, 16, 19, 0.11);
+  --hairline-strong: rgba(16, 16, 19, 0.24);
+
+  /* ------------------------------------------------------------
+     炫彩折射层（参考 pidanai.com 的 refraction orbs）
+     底色不是纯白 —— 底下铺 5 个低饱和光晕球，糊成一层彩色雾。
+
+     数值是实测调出来的：早先照抄参考站的 0.14~0.2，
+     在 #fbfbf8 这种接近纯白的底上，叠加后 R 通道只差 26 ——
+     肉眼完全无感（用户反馈「没区别」）。所以这里**加倍**：
+     0.28~0.42 的色值 + 整体 0.8，才能在浅色纸上看出彩色温度。
+     ------------------------------------------------------------ */
+  --dot: rgba(16, 16, 19, 0.16);
+  --refraction-opacity: 0.8;
+  --refraction-cyan: rgba(71, 169, 255, 0.42);
+  --refraction-violet: rgba(153, 111, 255, 0.38);
+  --refraction-pink: rgba(255, 108, 174, 0.34);
+  --refraction-mint: rgba(83, 221, 184, 0.3);
+  --refraction-warm: rgba(255, 192, 98, 0.28);
+
+  /* ------------------------------------------------------------
+     悬浮玻璃面板（弹窗 / 抽屉 / Toast / 顶栏 —— Apple vibrancy 材质）
+     ------------------------------------------------------------
+     ══ 为什么必须改（旧配方的病根）═══════════════════════════
+     旧配方是「一颗不透明的近白底 + 白描边」：
+       底色 rgba(243,246,251,0.9) —— 90% 不透明，根本没东西透得过来
+       描边 rgba(255,255,255,0.85) —— 白边压白底，等于没有边界
+       遮罩 rgba(251,251,248,0.86) —— 又把背景糊成一片近白
+     三者叠加 ⇒ 弹窗是一块「白板」。实测：弹窗中心与遮罩的亮度差只有 5.8/255。
+
+     ══ 现在怎么做的 ══════════════════════════════════════════
+     真玻璃 = **半透明 + 糊住背后的画面 + 发丝边 + 顶缘受光**：
+       pane-bg            半透明底（亮色 0.66，不是 0.9）
+       pane-blur/sat      背板模糊（backdrop-filter）—— 玻璃的本体
+       pane-border        发丝描边：亮色必须用**暗**线，
+                          白线在白底上没有边界感（旧配方就栽在这）
+       pane-edge-light    顶缘受光高光：玻璃的受光面
+       pane-edge-dark     底缘背光暗线：玻璃的厚度
+       pane-shadow-*      近处硬影 + 远处柔影：把面板抬离页面
+       veil               遮罩只做「压暗」，模糊交给面板自己
+
+     ⚠️ 刻意**不做**炫彩染色（旧的 panel-tint-* 已删除）：
+        用户明确要求「不是炫彩玻璃，是透明的苹果那样的玻璃」。
+        彩色只保留在 .shell::before 的光谱校准线与背景折射光晕上。
+     ------------------------------------------------------------ */
+  --pane-bg: rgba(255, 255, 255, 0.66);
+  /* 弹窗/抽屉：正文要长时间阅读，比普通卡片再厚一档，保证可读性 */
+  --pane-bg-strong: rgba(255, 255, 255, 0.78);
+  --pane-blur: 34px;
+  --pane-sat: 180%;
+  --pane-border: rgba(20, 24, 34, 0.11);
+  --pane-edge-light: rgba(255, 255, 255, 0.95);
+  --pane-edge-dark: rgba(20, 24, 34, 0.07);
+  --pane-shadow-near: rgba(16, 20, 30, 0.1);
+  --pane-shadow-far: rgba(16, 20, 30, 0.22);
+  /*
+   * 遮罩：亮色下只是**压暗**，让弹窗亮起来形成对比。
+   * 不再用 rgba(paper, 0.86) 那种「糊成一张纸」的写法 ——
+   * 那样背景全白，弹窗再亮也无从对比。
+   *
+   * ⚠️ 遮罩本身**不带** backdrop-filter：实测（tools/nest-proof.mjs +
+   * tools/coarse-proof.mjs）面板的模糊穿透父级遮罩照常生效，
+   * 但遮罩自己再加一层模糊只会把背景多糊一遍、白花钱。
+   */
+  --veil: rgba(22, 26, 36, 0.18);
+
+  /* ------------------------------------------------------------
+     通用玻璃表面（页内卡片 / 控件 / 顶栏 / Toast —— 与弹窗同一套语言）
+     ------------------------------------------------------------
+     与 --pane-* 分开定义的原因：弹窗是「漂浮在遮罩上的厚玻璃」，
+     页内卡片是「贴在页面上的薄玻璃」，两者透明度与模糊半径不该一样。
+     但**结构完全一致**：发丝暗边 + 顶缘受光 + 底缘背光 + 双层投影。
+
+     ⚠️ 亮色主题的要害：描边必须是**暗**线。
+        旧配方用 rgba(255,255,255,0.82)，白边压白底 ⇒ 卡片没有轮廓，
+        这正是用户说的「不是玻璃、是一块白板」。
+     ------------------------------------------------------------ */
+  --surf: rgba(255, 255, 255, 0.55);
+  --surf-strong: rgba(255, 255, 255, 0.72);
+  --surf-hover: rgba(255, 255, 255, 0.82);
+  --surf-blur: 20px;
+  --surf-border: rgba(20, 24, 34, 0.1);
+  --surf-border-strong: rgba(20, 24, 34, 0.16);
+  --surf-edge-light: rgba(255, 255, 255, 0.92);
+  --surf-edge-dark: rgba(20, 24, 34, 0.06);
+  --surf-shadow-near: rgba(16, 20, 30, 0.08);
+  --surf-shadow-far: rgba(16, 20, 30, 0.16);
+
+  /* 信号色：唯一强调色 */
+  --signal: #ff4d00;
+  --signal-raw: 255, 77, 0;
+  --signal-soft: rgba(255, 77, 0, 0.09);
+
+  --ok: #0e8a4f;
+  --ok-soft: rgba(14, 138, 79, 0.09);
+  --warn: #b97700;
+  --warn-soft: rgba(185, 119, 0, 0.1);
+  --bad: #d5302f;
+  --bad-soft: rgba(213, 48, 47, 0.08);
+
+  /* 光谱校准线（唯一炫彩元素，低饱和） */
+  --spec-1: rgba(64, 158, 255, 0.85);
+  --spec-2: rgba(146, 108, 255, 0.85);
+  --spec-3: rgba(255, 92, 158, 0.85);
+  --spec-4: rgba(64, 208, 172, 0.85);
+  --spec-5: rgba(255, 176, 70, 0.85);
+  --spectral: linear-gradient(
+    90deg,
+    var(--spec-1),
+    var(--spec-2) 26%,
+    var(--spec-3) 52%,
+    var(--spec-4) 78%,
+    var(--spec-5)
+  );
+
+  /* 字体 */
+  --font-ui: 'Inter', 'Noto Sans SC', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', ui-monospace, 'SF Mono', Consolas, 'Courier New', monospace;
+
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 6px;
+
+  --sidebar-w: 218px;
+
+  /*
+   * hover 背景。浅色主题用淡墨；暗色主题必须是**亮**色淡染 ——
+   * 用户反馈：暗色下 hover 用墨色 4% 几乎看不见（标签指上去看不清）。
+   * 这里定义成「一行色值」变量，浅/暗主题各自覆盖。
+   */
+  --hover-raw: 0, 0, 0;
+  --hover-alpha: 0.05;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #0e0e10;
+  --paper-raw: 14, 14, 16;
+  --panel: #141417;
+  --ink: #f1f1ec;
+  --ink-raw: 241, 241, 236;
+  --muted: rgba(241, 241, 236, 0.58);
+  --faint: rgba(241, 241, 236, 0.36);
+  --hairline: rgba(241, 241, 236, 0.12);
+  --hairline-strong: rgba(241, 241, 236, 0.26);
+
+  /*
+   * 暗色炫彩：不是纯黑底。
+   * 暗色下光晕要**更亮一点**才看得见（同样的不透明度在深底上更弱），
+   * 所以色值略高于亮色主题；整体不透明度反而调低（0.6），
+   * 避免深色界面被彩色雾冲淡对比度、影响可读性。
+   */
+  --dot: rgba(241, 241, 236, 0.18);
+  --refraction-opacity: 0.6;
+  --refraction-cyan: rgba(72, 178, 255, 0.4);
+  --refraction-violet: rgba(158, 120, 255, 0.36);
+  --refraction-pink: rgba(255, 116, 184, 0.32);
+  --refraction-mint: rgba(80, 224, 190, 0.3);
+  --refraction-warm: rgba(255, 194, 105, 0.28);
+
+  /* 玻璃面板：结构与亮色**完全一致**，只换色值。
+     两个主题不再各写一套配方 —— 那是以前「观感割裂」的根源。
+     方向感也不变：顶缘受光（亮线）、底缘背光（暗线）。 */
+  --pane-bg: rgba(38, 38, 43, 0.6);
+  --pane-bg-strong: rgba(34, 34, 39, 0.72);
+  --pane-blur: 34px;
+  --pane-sat: 180%;
+  --pane-border: rgba(241, 241, 236, 0.14);
+  --pane-edge-light: rgba(255, 255, 255, 0.2);
+  --pane-edge-dark: rgba(0, 0, 0, 0.45);
+  --pane-shadow-near: rgba(0, 0, 0, 0.45);
+  --pane-shadow-far: rgba(0, 0, 0, 0.62);
+  --veil: rgba(8, 9, 12, 0.34);
+
+  /* 通用玻璃表面：与亮色同一套结构，只换色值。
+     方向感不变 —— 顶缘仍是受光（亮线），底缘仍是背光（暗线）。 */
+  --surf: rgba(255, 255, 255, 0.06);
+  --surf-strong: rgba(255, 255, 255, 0.1);
+  --surf-hover: rgba(255, 255, 255, 0.15);
+  --surf-blur: 20px;
+  --surf-border: rgba(241, 241, 236, 0.2);
+  --surf-border-strong: rgba(241, 241, 236, 0.3);
+  --surf-edge-light: rgba(255, 255, 255, 0.18);
+  --surf-edge-dark: rgba(0, 0, 0, 0.38);
+  --surf-shadow-near: rgba(0, 0, 0, 0.3);
+  --surf-shadow-far: rgba(0, 0, 0, 0.5);
+
+  --signal: #ff6a2a;
+  --signal-raw: 255, 106, 42;
+  --signal-soft: rgba(255, 106, 42, 0.12);
+
+  --ok: #3ecf8e;
+  --warn: #eab13d;
+  --bad: #ff6b6a;
+
+  --spec-1: rgba(64, 158, 255, 0.7);
+  --spec-2: rgba(146, 108, 255, 0.7);
+  --spec-3: rgba(255, 92, 158, 0.7);
+  --spec-4: rgba(64, 208, 172, 0.7);
+  --spec-5: rgba(255, 176, 70, 0.7);
+
+  /* 暗色：hover 用亮色淡染才看得清 */
+  --hover-raw: 255, 255, 255;
+  --hover-alpha: 0.09;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+/*
+ * html **不能有实底**。
+ *
+ * 踩过的坑：之前为「防滚动露白」给 html 加了 background: var(--paper)，
+ * 但那是不透明实色，绘制层级在负 z-index 之上 —— 于是
+ *   .aurora-bg      (z-index:-2)  ← 炫彩折射层
+ *   .aurora-bg::before (z-index:-1) ← 5 个光晕球
+ * 两层**全被盖住**，看不见。
+ * 连带后果：卡片用的 rgba(255,255,255,0.05) 透明玻璃叠在纯白 html 上，
+ * 看起来仍是白的 —— 用户以为「还是模糊玻璃」，其实是背景被挡了。
+ *
+ * 现在底色统一由 .aurora-bg 提供（它是 fixed inset:0，永远铺满视口，
+ * 不会出现滚动露白），html/body 保持透明。
+ */
+html,
+body {
+  background: transparent;
+}
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  /*
+   * 底色由 .aurora-bg 提供（纸色 + 炫彩折射光晕 + 点阵）。
+   * body 必须透明，否则会盖住那层（.aurora-bg 是 z-index:-2）。
+   */
+  background: transparent;
+  font-size: 13.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /*
+   * 全局禁止选中文字：这是桌面应用外壳，不是网页。
+   * 不这么做的话，点标签、拖侧栏、连点按钮都会顺手把文字选蓝
+   * （长按拖动排序时尤其明显，一选蓝就拖不动）。
+   * 正文内容用下面的 .selectable 单独放开。
+   */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+/*
+ * 需要能划选、复制的「正文」容器。
+ * 这些是用户要读、要抄的内容：提示词正文、日志、错误堆栈、命令行示例。
+ * 其余 UI 文字（标签、按钮、路径、徽标）一律不可选。
+ */
+.rule-box,
+.error-trace,
+.runtime-log-line,
+.log-dock-body,
+pre,
+code,
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+/* 输入类控件始终可选中、可编辑 */
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+::selection {
+  background: rgba(var(--signal-raw), 0.22);
+}
+
+/* 滚动条：常驻可见。
+   两个坑（都已踩过）：
+   1) thumb 原来是 18% 透明墨 + 2px 透明边框（background-clip:content-box），
+      只画 4px 且极淡，白卡片上几乎看不见 —— 「滚动条没了」的真身是「看不见」。
+   2) 不能同时声明标准 scrollbar-width/scrollbar-color：Chromium 下一旦存在这两个
+      标准属性就**忽略 ::-webkit-scrollbar 伪元素**，退回内置 fluent 滚动条（平时不绘制）。
+      实测：只留 webkit 规则时按下述颜色正常绘制；加了标准属性后整条不画。
+      因此这里只保留 webkit 伪元素，不使用 scrollbar-width/color。 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.4));
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--ink-raw), 0.34);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ink-raw), 0.58);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- 等宽标注体系 ---------- */
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.kicker::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--signal);
+  flex: none;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  color: var(--muted);
+  border-radius: 4px;
+}
+.sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+.h1 {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0;
+}
+.h2 {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* ============================================================
+   液态玻璃 —— 全局卡片/面板（顶栏 / 弹窗 / 各页卡片）
+   ------------------------------------------------------------
+   与弹窗 .glass-strong 是**同一套玻璃语言**，只是「薄」一档：
+     · 薄玻璃（页内卡片）：--surf 半透明底 + blur(20px)
+     · 厚玻璃（弹窗/抽屉）：--pane-* 更不透明 + blur(34px)
+   两者结构完全一致：发丝暗边 / 顶缘受光 / 底缘背光 / 双层投影。
+
+   ⚠️ 改这里之前先读这段（旧配方的两个坑）：
+     ① 旧底是 `linear-gradient(rgba(255,255,255,.05), …)` —— 几乎纯透明，
+        在纸色背景上等于「什么都没有」，只能靠白描边找边界；
+     ② 旧描边是 rgba(255,255,255,0.82)：**白边压白底** ⇒ 没有轮廓。
+     于是亮色下卡片看着是一块模糊的白板。现在描边走 --surf-border（暗线），
+     底走 --surf（半透明白），边框与底色终于有对比。
+
+   为什么页内卡片用 blur 而以前不用（旧注释说「blur 会把点阵抹掉」）：
+     那条结论对 1.2px 点阵成立，但代价是卡片完全没有玻璃感。
+     现在改为：**卡片也要模糊**（这是用户要的苹果玻璃），
+     点阵不再靠卡片「透过来」呈现 —— 它留在卡片外的页面背景上。
+   ============================================================ */
+.glass {
+  border: 1px solid var(--surf-border);
+  border-radius: var(--r-lg);
+  background: var(--surf);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 2px var(--surf-shadow-near),
+    0 12px 34px var(--surf-shadow-far);
+}
+.glass-iridescent {
+  position: relative;
+}
+/* 炫彩存在感收敛为面板左缘 2px 光谱条 */
+.glass-iridescent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--spectral);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.glass-pad {
+  padding: 16px 18px;
+}
+/*
+ * .glass-strong：弹窗 / 抽屉 —— 整套「苹果透明玻璃」配方。
+ *
+ * ══ 一条统一规则，两个主题只换变量 ══════════════════════════
+ * 不再为亮/暗各写一套配色 —— 那是之前「两主题观感割裂」的根源。
+ * 结构、层次、厚度完全一致，只在 :root 里换色值。
+ *
+ * ══ 为什么必须用 backdrop-filter ═══════════════════════════
+ * 玻璃的本体就是「透过去 + 糊掉背后的画面」。旧配方没有这一条，
+ * 只靠一颗 90% 不透明的近白底冒充玻璃，于是看着是白板。
+ *
+ * 实测确认（tools/coarse-proof.mjs，用 260px 黑白大色块做底）：
+ *   · 不加 backdrop-filter → 面板内剖面 146 160 160 160 243 243…
+ *     （色块边界原样穿透，一眼假）
+ *   · 加 blur(34px)        → 面板内剖面 145 160 160 171 204 234 242…
+ *     （边界被糊成台阶，背后画面真的在玻璃后面虚化）
+ *   · 父级 .modal-overlay 即使自带 backdrop-filter，子级依然生效
+ *     （tools/nest-proof.mjs ②③ 对比：条纹保留 1.2% vs 0.8%，无差别）
+ *     ⇒ 遮罩不再需要替面板「代偿」模糊，只需负责压暗。
+ *
+ * ══ 为什么亮色之前是「白板」════════════════════════════════
+ * 三个叠加错误：
+ *   ① 底色 rgba(240,244,250,0.9) —— 90% 不透明，没有透视
+ *   ② **边框也是白的** rgba(255,255,255,0.85) —— 白边压白底，
+ *      等于没有边界，所以看起来是一整块白
+ *   ③ 投影太轻，面板「浮」不起来
+ * 玻璃的厚度**来自明暗对比**：顶边受光（亮线）、底边背光（暗线）。
+ * 亮色下必须有暗边，否则再好看的高光也读不出轮廓。
+ */
+.glass-strong {
+  border: 1px solid var(--pane-border);
+  /* 半透明底 —— 不铺任何彩色渐变（用户要求「不是炫彩玻璃」） */
+  background: var(--pane-bg-strong);
+  /* 玻璃的本体：糊住背后的页面，同时提一点饱和度让透上来的色彩更活 */
+  -webkit-backdrop-filter: blur(var(--pane-blur)) saturate(var(--pane-sat));
+  backdrop-filter: blur(var(--pane-blur)) saturate(var(--pane-sat));
+  box-shadow:
+    /* 顶缘受光：1.5px 亮线 —— 玻璃的受光面 */
+    inset 0 1.5px 0 var(--pane-edge-light),
+    /* 底缘背光：1.5px 暗线 —— 玻璃的厚度 */
+    inset 0 -1.5px 0 var(--pane-edge-dark),
+    /* 近处硬影 + 远处柔影：把面板从页面上「抬起来」 */
+    0 1px 2px var(--pane-shadow-near),
+    0 10px 26px var(--pane-shadow-near),
+    0 34px 78px var(--pane-shadow-far);
+}
+
+/* ============================================================
+   背景：纸 + 点阵网格 + 炫彩折射光晕
+   ------------------------------------------------------------
+   参考 pidanai.com 的 body::after「refraction orbs」：
+   5 个不同色的径向光晕球，各自尺寸/位置不同，统一 blur(88px) 糊开，
+   叠加后就是一层柔和的彩色雾 —— 底色因此不是纯白/纯黑，而是
+   「有一点炫彩」的观感。
+   色值刻意压得很低（0.1~0.2），只做底味，不抢内容。
+
+   层级说明（这块踩过坑，别随意改）：
+     · html / body 都透明，底色由这里提供
+     · .aurora-bg 用 z-index:0（**不用负数**）——
+       负 z-index 会被 html 背景绘制层盖住，曾经导致整层不可见
+     · .shell 等主体内容在 DOM 里排它之后，自然叠在上面
+   ============================================================ */
+.aurora-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--paper);
+}
+
+/* 炫彩折射层：5 个模糊光晕球 */
+.aurora-bg::before {
+  content: '';
+  position: fixed;
+  /* 外扩一圈，模糊后边缘不会露出空白 */
+  inset: -18vh -14vw;
+  /*
+   * 必须是正 z-index。
+   * .aurora-bg 有 z-index:0，已创建层叠上下文；它的 ::before 若用 -1，
+   * 会被 .aurora-bg 自己的 background-color（纸色）盖住 —— 光晕就没了。
+   * 这正是「炫彩看不见」的第二个原因（第一个是 html 的实底）。
+   */
+  z-index: 1;
+  pointer-events: none;
+  opacity: var(--refraction-opacity);
+  background-image:
+    radial-gradient(circle, var(--refraction-cyan) 0 22%, transparent 54%),
+    radial-gradient(circle, var(--refraction-pink) 0 20%, transparent 52%),
+    radial-gradient(circle, var(--refraction-violet) 0 22%, transparent 56%),
+    radial-gradient(circle, var(--refraction-mint) 0 18%, transparent 50%),
+    radial-gradient(circle, var(--refraction-warm) 0 20%, transparent 54%);
+  background-size:
+    42vmax 42vmax,
+    38vmax 38vmax,
+    46vmax 46vmax,
+    34vmax 34vmax,
+    50vmax 50vmax;
+  background-position:
+    8% 14%,
+    84% 8%,
+    78% 78%,
+    18% 82%,
+    46% 42%;
+  background-repeat: no-repeat;
+  filter: blur(88px) saturate(118%);
+  transform: translate3d(0, 0, 0) scale(1.05);
+  animation: refraction-orbs 18s cubic-bezier(0.45, 0, 0.2, 1) infinite alternate;
+  will-change: transform;
+}
+
+/*
+ * 光晕缓慢漂移：让底色「活」起来，但幅度很小（只动 background-position），
+ * 不会干扰阅读。18s 一个来回，几乎察觉不到具体运动，只觉得不呆板。
+ */
+@keyframes refraction-orbs {
+  0% {
+    background-position:
+      8% 14%,
+      84% 8%,
+      78% 78%,
+      18% 82%,
+      46% 42%;
+  }
+  50% {
+    background-position:
+      14% 20%,
+      76% 14%,
+      84% 70%,
+      12% 76%,
+      52% 48%;
+  }
+  100% {
+    background-position:
+      4% 10%,
+      90% 4%,
+      72% 86%,
+      24% 88%,
+      40% 36%;
+  }
+}
+
+/*
+ * 点阵不在这里 —— 由 .dash-page::before 提供（仅总览页，带视差）。
+ * 这里只负责炫彩折射层，避免两处点阵叠加变成双倍密度。
+ */
+
+/* ============================================================
+   控件
+   ============================================================ */
+/*
+ * 通用按钮：玻璃胶囊。
+ * 与 .glass / .glass-btn 同一套配方（半透明 + 发丝暗边 + 顶缘受光）。
+ *
+ * ⚠️ 与旧写法的区别：描边从「白色」改成 --surf-border（亮色下是暗线）。
+ *    白描边在白底按钮上没有轮廓，看着像「浮在白纸上的一团白」。
+ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--surf-border-strong);
+  background: var(--surf-strong);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 3px var(--surf-shadow-near);
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease,
+    transform 0.1s ease, box-shadow 0.14s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--surf-hover);
+  border-color: var(--pane-border);
+  box-shadow:
+    inset 0 1px 0 var(--surf-edge-light),
+    0 4px 14px var(--surf-shadow-far);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 60%),
+    #101013;
+  border-color: rgba(16, 16, 19, 0.9);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 18px rgba(var(--ink-raw), 0.24);
+}
+.btn-primary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--signal);
+  flex: none;
+}
+.btn-primary:hover {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04) 60%),
+    color-mix(in srgb, #101013 88%, var(--signal));
+  border-color: color-mix(in srgb, #101013 88%, var(--signal));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 10px 26px rgba(var(--ink-raw), 0.3);
+}
+.btn-danger {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+}
+.btn-danger:hover {
+  background: var(--bad-soft);
+  border-color: var(--bad);
+}
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.btn-ghost:hover {
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.4));
+  border-color: transparent;
+}
+/*
+ * 版本卡行内的编辑/删除是紧挨着的两个 ghost 按钮（gap 2px）。
+ * 悬停其中一个时 .card-row:hover .rail-actions 会把整组 opacity 提到 1，
+ * 此时若两个按钮的 hover 底色相同，视觉上「亮一个变亮两个」。
+ * 现在：只有真正被指着的按钮才有 hover 底色，另一个保持纯透明。
+ */
+.rail-actions .btn-ghost:hover {
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.8));
+}
+.rail-actions .btn-ghost:not(:hover) {
+  background: transparent;
+  box-shadow: none;
+}
+.btn-sm {
+  padding: 4px 9px;
+  font-size: 11.5px;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+  /*
+   * 关键：select 的**弹出列表**（option popup）由浏览器原生绘制，
+   * 不吃页面 CSS 的 background。Chromium 决定 popup 白底/黑底
+   * 看的是 select 元素自身的 color-scheme —— 虽然它在 html 上
+   * 已随主题切换，但 WebView2 对 appearance:none 的 select
+   * 不继承到 popup（实测暗色下弹窗白底亮字，字被白底吃掉）。
+   * 在元素上显式声明才能让 popup 跟着主题走。
+   */
+  color-scheme: light dark;
+}
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--signal);
+  box-shadow: 3px 3px 0 rgba(var(--signal-raw), 0.14);
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--faint);
+}
+.select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.textarea {
+  resize: vertical;
+  min-height: 90px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ---------- 徽标：方形小签 ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--hairline-strong);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-soft); }
+.badge-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-soft); }
+.badge-bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-soft); }
+.badge-accent { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, transparent); background: var(--signal-soft); }
+.badge-neutral { color: var(--muted); }
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+}
+.dot-ok { background: var(--ok); }
+.dot-bad { background: var(--bad); }
+.dot-idle { background: var(--faint); }
+
+.text-ok { color: var(--ok); }
+.text-warn { color: var(--warn); }
+.text-bad { color: var(--bad); }
+.text-faint { color: var(--faint); }
+
+/* ============================================================
+   布局：顶部导航模式
+   ============================================================ */
+.shell-topnav {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  /*
+   * 显式抬到背景层之上。
+   * .aurora-bg 是 fixed + z-index:0，会创建自己的层叠上下文；
+   * 主体内容若不加定位，在某些浏览器下可能与它同层而顺序不定。
+   * 写清楚 position/z-index 就不依赖绘制顺序的隐式行为。
+   */
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- 顶栏导航（Pidan 风格：悬浮圆角液态玻璃条） ----------
+   参考用户提供的 Pidan 顶栏截图：整条玻璃脱离页面边缘（四周留白），
+   微点阵从玻璃底下透出来，导航项是独立的悬浮玻璃胶囊。 */
+.topnav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 14px);
+  /* 边距随视口收缩：窄窗口不再吃掉内容宽度 */
+  margin: clamp(8px, 1.2vw, 12px) clamp(10px, 1.6vw, 18px) 0;
+  padding: clamp(6px, 0.8vw, 8px) clamp(8px, 1.2vw, 12px);
+  border: 1px solid var(--pane-border);
+  border-radius: 999px;          /* 整条全圆角 */
+  background: var(--pane-bg);
+  -webkit-backdrop-filter: blur(var(--pane-blur)) saturate(var(--pane-sat));
+  backdrop-filter: blur(var(--pane-blur)) saturate(var(--pane-sat));
+  box-shadow:
+    inset 0 1.5px 0 var(--pane-edge-light),
+    inset 0 -1px 0 var(--pane-edge-dark),
+    0 1px 2px var(--pane-shadow-near),
+    0 12px 34px var(--pane-shadow-far);
+  z-index: 50;
+  /* 顶栏本身不换行，靠内部 .topnav-items 横向滚动 */
+  min-width: 0;
+}
+
+/* 中等窗口：收紧导航项，尽量一屏放下 */
+@media (max-width: 1500px) {
+  .topnav-item {
+    padding: 7px 11px;
+    font-size: 12px;
+    gap: 5px;
+  }
+}
+@media (max-width: 1280px) {
+  .topnav-item {
+    padding: 6px 9px;
+    font-size: 11.5px;
+  }
+  /* 极窄时隐藏序号，给标签腾地方 */
+  .topnav-item .nav-idx {
+    display: none;
+  }
+}
+@media (max-width: 1080px) {
+  .topnav-label {
+    /* 只留图标，标签藏起来 —— 靠 title 提示 */
+    display: none;
+  }
+  .topnav-item {
+    padding: 7px 10px;
+  }
+  /* 品牌副标题在窄窗口冗余 */
+  .topnav-brand-copy .logo-sub {
+    display: none;
+  }
+}
+
+/* 导航项：独立玻璃胶囊（Pidan 那种一粒一粒的悬浮按钮） */
+.topnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border: 1px solid var(--surf-border);
+  border-radius: 999px;
+  background: var(--surf-strong);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 3px var(--surf-shadow-near);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+  position: relative;
+}
+.topnav-item:hover {
+  background: var(--surf-hover);
+  border-color: var(--pane-border);
+  color: var(--ink);
+  transform: translateY(-1px);
+  /*
+   * 同样去掉带偏移的投影：父容器 .topnav-items 是 overflow-x:auto，
+   * 偏移投影会被裁成胶囊下方一条孤立虚影（见 .active 的注释与实测数据）。
+   */
+  box-shadow:
+    inset 0 1px 0 var(--surf-edge-light),
+    0 0 0 1px var(--surf-border);
+}
+/*
+ * 激活项：亮色下深底浅字。
+ * 用明确色值而不是 var(--ink)/var(--paper) —— 那对变量在暗色主题里会**互换**，
+ * 是「暗色下激活项深底深字、完全看不见」的根源。两个主题各写各的，别复用。
+ */
+/*
+ * 选中项：深色实心胶囊 + 浅色字。
+ *
+ * ══ 为什么不能带「向下投的暗影」（用户报「选中会有黑色虚影」）══════════
+ * 原先这里是 `0 8px 20px rgba(ink, .26)` —— 一道 8px 偏移、20px 模糊的
+ * 深色投影。它在别处也许还行，但顶栏这条胶囊有个特殊性：
+ *   父容器 .topnav-items 是 `overflow-x: auto`（导航项多时要能横向滚），
+ *   而 overflow 非 visible 会把子元素**溢出部分裁掉**。
+ * 于是这道 20px 模糊的暗影被裁成只剩胶囊正下方一小条，且因为偏移 8px，
+ * 暗影主体落在胶囊之外 —— 视觉上就是紧贴下沿拖出一道**孤立的黑色虚影**
+ * （实测逐行亮度：胶囊下方 8 行内是纯背景 lum≈242，第 11~15 行突然掉到
+ * 169~184，正是被裁剩的暗影，与背景对比 60+）。
+ * 现在改成：只保留内高光（inset）+ 一圈**不偏移**的柔和光晕。
+ * 不偏移就不会往下拖，也就不会被 overflow 裁出那道断层。
+ * 深色主题同理（见下方 dark 规则）。
+ */
+.topnav-item.active {
+  background: #101013;
+  border-color: #101013;
+  color: #fbfbf8;
+  /*
+   * 只保留内高光 + 不偏移的一圈描边，**完全去掉带偏移的投影**。
+   * 实测（同一行、与相邻未选中胶囊对比）：带 2px 偏移的投影仍会让胶囊
+   * 正下方那一行比对照暗 ~10（y=61 差 9.9，往下两行回落到 2.1），
+   * 因为父容器 overflow-x:auto 把 8px 模糊裁得只剩贴边一条。
+   * 偏移量归零后该差异消失（复验见下）。
+   */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 0 0 1px rgba(16, 16, 19, 0.08);
+}
+.topnav-item.active .nav-idx {
+  color: var(--signal);
+}
+.topnav-item.active svg {
+  opacity: 1;
+}
+
+/* 品牌区（Pidan 截图里左侧的粗体 LOGO） */
+.topnav-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  flex: none;
+  padding: 2px 6px;
+}
+.topnav-brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.topnav-items {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+}
+.topnav-items::-webkit-scrollbar {
+  display: none;
+}
+.topnav-item .nav-idx {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--faint);
+  letter-spacing: 0.05em;
+}
+.topnav-item svg {
+  opacity: 0.75;
+}
+
+.topnav-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* ---------- 通知铃铛（消息中心入口） ---------- */
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+@media (max-width: 1040px) {
+  .topnav-stat {
+    display: none;
+  }
+}
+
+/* ---------- 内容区 + 常驻目标侧栏 ---------- */
+.shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 常驻目标栏（左侧，随 4 个目标上下文页面显隐）
+   宽度自适应：窄窗口收窄，给主内容留出空间 —— 早先固定 240px，
+   窗口一窄主内容就被挤到截断。 */
+.target-rail {
+  width: clamp(168px, 17vw, 240px);
+  flex: none;
+  border-left: none;
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.target-rail-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+.target-rail-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--hairline);
+  position: relative;
+  /* 位移动效：拖动让位与落位都靠这条过渡，看起来才「丝滑」 */
+  transition:
+    background 0.12s ease,
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+  touch-action: pan-y;
+}
+.rail-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.rail-row.selected {
+  background: rgba(var(--signal-raw), 0.05);
+}
+/* 选中行 hover：同 card-row 的修法，保持两主题一致（见 card-row.selected:hover 注释） */
+.rail-row.selected:hover {
+  background: rgba(var(--signal-raw), 0.09);
+}
+.rail-row.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--signal);
+}
+
+/* 拖动中的那一行：抬起 + 阴影 + 去掉过渡（要跟手，不能有延迟） */
+.rail-row.rail-dragging {
+  transition: box-shadow 0.18s ease;
+  /* 用面板色而不是写死白色 —— 暗色下写死白底会「文字看不清」 */
+  background: var(--panel);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.2);
+  cursor: grabbing;
+  opacity: 0.97;
+}
+/* 松手落位时给一点回弹感 */
+.rail-row.rail-settling {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 抓取手柄：平时很淡，hover 才明显 */
+.rail-grip {
+  flex: none;
+  color: var(--faint);
+  opacity: 0.25;
+  transition: opacity 0.15s ease;
+}
+.rail-row:hover .rail-grip {
+  opacity: 0.7;
+}
+.rail-row.rail-dragging .rail-grip {
+  opacity: 1;
+  color: var(--signal);
+}
+
+/* 落点插入指示线 */
+.rail-drop-line {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--signal);
+  box-shadow: 0 0 8px rgba(var(--signal-raw), 0.55);
+  animation: rail-line-in 0.16s ease;
+}
+@keyframes rail-line-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+.rail-name {
+  font-weight: 800;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+.rail-path {
+  font-size: 9.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+/* 侧栏每行的注入状态（圆点 + 文案） */
+.rail-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+}
+.rail-state-text {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-state-text.on {
+  color: var(--ok);
+}
+
+/*
+ * 注入状态胶囊标签（顶部副标题用）。
+ *
+ * 用户反馈原来的灰色文字「干瘪、不明显」—— 已注入是这个页面
+ * 最该一眼看到的信息，所以做成**实心彩色标签**：
+ *   已注入 → 绿底白字
+ *   未注入 → 灰底（中性，不抢眼）
+ */
+.inject-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 2));
+  color: var(--muted);
+  border: 1px solid var(--hairline-strong);
+}
+.inject-pill.on {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+.rail-marks {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+.rail-ver {
+  font-size: 9.5px;
+  color: var(--muted);
+  border: 1px solid var(--hairline-strong);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.rail-ver.zero {
+  opacity: 0.4;
+}
+.target-rail-foot {
+  flex: none;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hairline);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+@media (max-width: 1100px) {
+  .target-rail {
+    display: none;
+  }
+}
+
+/* 顶部光谱校准线 —— 全局签名细节 */
+.shell::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--spectral);
+  z-index: 90;
+  opacity: 0.85;
+}
+
+/* ---------- 侧栏（旧布局遗留，顶部导航模式下不渲染） ---------- */
+.sidebar {
+  display: none;
+}
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 20px;
+}
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 900;
+  font-size: 15px;
+  border-radius: 8px;
+  position: relative;
+}
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 8px;
+  height: 8px;
+  background: var(--signal);
+  border-radius: 2px;
+}
+.logo-name {
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.logo-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  overflow-y: auto;
+}
+.nav-group {
+  margin-bottom: 10px;
+}
+.nav-group-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 0 10px 5px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+  position: relative;
+}
+.nav-item .nav-idx {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+  width: 18px;
+  flex: none;
+  letter-spacing: 0.05em;
+}
+.nav-item svg {
+  flex: none;
+  opacity: 0.75;
+}
+.nav-item:hover {
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.4));
+  color: var(--ink);
+}
+.nav-item.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.nav-item.active .nav-idx {
+  color: var(--signal);
+}
+.nav-item.active svg {
+  opacity: 1;
+}
+.nav-tip {
+  display: none;
+}
+
+.sidebar-foot {
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-foot .btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* ---------- 主区 ---------- */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  /*
+   * 微点阵背景：从总览页扩展到全部页面（用户要求「总览的主题背景应用到其他页面」）。
+   * 用 ::before 而不是直接写 background —— 这样各页自己的内容层不会被盖住，
+   * 也能统一控制透明度。
+   */
+  position: relative;
+}
+/*
+ * 背景点阵 → **随机星空**（用户要求：不要矩阵点，要随机大小、随鼠标移动）。
+ *
+ * ══ 为什么删掉原实现 ═════════════════════════════════════════════════
+ * 原先是这里一张 36px 平铺的 radial-gradient：
+ *   background-image: radial-gradient(rgba(...,.34) 1.2px, transparent 1.2px);
+ *   background-size: 36px 36px;
+ *   transform: translate3d(var(--grid-x), var(--grid-y), 0) scale(1.06);
+ * 三个固有缺陷：
+ *   ① 所有点等大等亮 —— 是"矩阵"不是"星空"，整齐得发死；
+ *   ② 间距严格 36px，规则网格一眼可辨；
+ *   ③ **视差看不出效果**：36px 周期的网格整体平移 24px，图案与自身几乎
+ *      重合，所以 JS 一直在写 --grid-x/--grid-y 用户也感觉"没动"。
+ * 现在由 <Starfield>（canvas）提供：位置/大小/亮度全随机，且每颗星按
+ * **各自深度**位移（大星近、动得多；碎星远、动得少）—— 这才是纵深，
+ * 位移也一眼可见。样式见下方 .starfield。
+ */
+/*
+ * 背景层（星云 + 星空）：**fixed 铺满整个视口**，挂在 shell 级。
+ *
+ * ══ 为什么不能挂在 .dash-page 里（用户报「咋分层了」）══════════════════
+ * 之前挂在 .dash-page 内、用 absolute。但顶栏 `.topnav` 在 .dash-page
+ * **外面**（它是 .shell-topnav 的直接子元素，而 .dash-page 在 .main 里）：
+ *   .shell-topnav
+ *     ├─ .aurora-bg
+ *     ├─ .topnav          ← 顶栏在这，背景层盖不到
+ *     └─ .shell-body > .main > .dash-page
+ *         ├─ .nebula      ← 背景层在这，只铺内容区
+ *         └─ .starfield
+ * 于是顶栏那条玻璃背后只有纯纸色，下方内容区却是星云星空 —— 顶栏下沿
+ * 出现一条明显的**分层接缝**，而且顶栏的 backdrop-filter 采样到的颜色
+ * 与内容区不一致（用户：「和顶部状态栏颜色都不一样了」）。
+ *
+ * 现在改成 fixed + 挂到 shell 级：铺满整个视口，顶栏玻璃的 backdrop-filter
+ * 自然把星云星空一起模糊进来，全屏是**同一张背景**，接缝消失。
+ */
+.nebula,
+.starfield {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/*
+ * 星云：上浓下淡，与页面内容的下沉感一致。
+ * 遮罩比星空更缓 —— 云是底色结构，不该像星点那样明显渐隐。
+ */
+.nebula {
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.72) 62%, rgba(0, 0, 0, 0.46));
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.72) 62%, rgba(0, 0, 0, 0.46));
+}
+/*
+ * 星空：叠在星云之上（DOM 里排在 .nebula 之后，同为 z-index:0 → 按顺序绘制）。
+ */
+.starfield {
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.62) 55%, rgba(0, 0, 0, 0.34));
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.62) 55%, rgba(0, 0, 0, 0.34));
+}
+/*
+ * 页面内容抬到背景层之上（背景层在 shell 级、z-index:0）。
+ *
+ * ══ 严禁给这条选择器加 :not()（真机炸过，别再犯）════════════════════
+ * 这条的职责是给 .page 的直接子元素加 position/z-index，但它会**顺带**
+ * 命中同样在 .page 里的浮层（.modal-overlay / .drawer-overlay /
+ * .cursor-blob / .warn-tip-float）。
+ * 那些浮层自己是 position:fixed + 高 z-index，之所以没被这条改坏，
+ * 靠的是**特异度相同 + 源码顺序在后**（它们都定义在本条之后）：
+ *   .page > *          → (0,1,0)  本行
+ *   .modal-overlay     → (0,1,0)  第 2188 行，后者胜
+ * 一旦写成 `.page > *:not(.a):not(.b)`，特异度变成 (0,1+N,0)，就会**反超**
+ * 浮层规则：实测把 .modal-overlay 从 fixed 拽成 relative、z-index 从
+ * 100 压到 1，安装进度弹窗当场掉进文档流（用户报「安装弹窗 UI 变这样」）。
+ * 现在背景层（.nebula / .starfield）已经挂在 shell 级、不在 .page 里，
+ * 所以这里**不需要任何排除**，保持最朴素的选择器即可。
+ */
+.page > * {
+  position: relative;
+  z-index: 1;
+}
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  /* 窄窗口收紧内边距，避免标题被挤到换行/截断 */
+  gap: clamp(10px, 1.5vw, 16px);
+  padding: clamp(14px, 2.4vw, 24px) clamp(14px, 2.6vw, 30px) clamp(10px, 1.6vw, 16px);
+  border-bottom: 1px solid var(--hairline);
+  flex-wrap: wrap;
+}
+.topbar .topbar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.topbar .sub {
+  max-width: 640px;
+}
+.topbar .h1 {
+  /* 标题过长时收缩而不是溢出 */
+  overflow-wrap: anywhere;
+}
+.page-body {
+  flex: 1;
+  /* min-height:0 必须写：flex 子项默认 min-height:auto，
+     内容一长就把 page-body 撑高，里面的 .tgt-scroll 就永远拿不到滚动高度 */
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(14px, 2.2vw, 22px) clamp(14px, 2.6vw, 30px) clamp(20px, 3vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 1.8vw, 18px);
+}
+
+/* ---------- 仪表读数条（总览） ---------- */
+.readout {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.readout-cell {
+  padding: 16px 20px 14px;
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+.readout-cell:last-child {
+  border-right: none;
+}
+.readout-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.readout-value {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.readout-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.readout-cell .cell-tick {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  background: var(--signal);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.readout-cell.alert .cell-tick {
+  opacity: 1;
+}
+@media (max-width: 980px) {
+  .readout {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .readout-cell:nth-child(2n) {
+    border-right: none;
+  }
+  .readout-cell:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--hairline);
+  }
+}
+
+/* ---------- 面板头 ---------- */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.panel-head .panel-kicker {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+/* 面板头允许换行：右栏工具多（搜索/刷新/全选/全不选/加号）时，
+   默认 nowrap 会把左侧 kicker 压成竖排一列字、末尾按钮被裁掉。 */
+.panel-head-wrap {
+  flex-wrap: wrap;
+}
+.panel-head-wrap > .kicker {
+  flex: none;
+}
+
+/* ---------- 通用行 ---------- */
+.col {
+  display: flex;
+  flex-direction: column;
+}
+.col.gap,
+.gap {
+  gap: 10px;
+}
+.col.gap-sm {
+  gap: 4px;
+}
+.row {
+  display: flex;
+}
+.row.gap {
+  gap: 8px;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  transition: background 0.12s ease;
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+.list-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+  position: relative;
+}
+.card-row:last-child {
+  border-bottom: none;
+}
+.card-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.card-row.selected {
+  background: rgba(var(--signal-raw), 0.05);
+}
+/*
+ * 选中行 hover：单独一层配方，且必须写在 .card-row:hover **之后**
+ * —— 两者特异性相同（0,2,0），后者胜出。
+ * 旧版没这条：hover 的黑白淡染直接盖掉选中的橙色淡染，
+ * 表现为「黑主题/白主题选中态长得不一样」（hover-raw 一黑一白）。
+ * 现在选中行 hover = 橙色染 + 轻微加深，两个主题一致，且不再被 hover 吃掉。
+ */
+.card-row.selected:hover {
+  background: rgba(var(--signal-raw), 0.09);
+}
+.card-row.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--signal);
+}
+
+/* ---------- 目标页（单列详情 + 常驻 rail） ---------- */
+.targets-layout-single {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 980px;
+}
+@media (max-width: 980px) {
+  .targets-layout-single {
+    max-width: none;
+  }
+}
+
+/* ---------- 技能页 ---------- */
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.skill-toggle {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  background: transparent;
+}
+.skill-toggle:hover {
+  border-color: var(--ink);
+}
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 4px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.13s ease;
+}
+.chip:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.chip-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.chip-off {
+  opacity: 0.4;
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
+/* 提示词文件缺失：红框提示，避免用户点到一份装不上的 */
+.chip-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.chip-bad.chip-on {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--paper);
+}
+
+
+/*
+ * 重名技能选择器（components/dup-skill-picker.tsx）。
+ *
+ * 布局要点：**宽度恒定** —— 来源再多也不横向撑开。
+ *   工具栏：搜索 + 批量来源 + 应用到全部
+ *   行收起：技能名 | 当前来源 | 来源数 | 箭头
+ *   行展开：来源单选列表（只有展开那行占高度）
+ */
+
+/* ---- 工具栏 ---- */
+.dup-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.6));
+}
+
+/* ---- 列表 ---- */
+.dup-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.dup-item + .dup-item {
+  border-top: 1px solid var(--hairline);
+}
+
+/* 收起态的一行 */
+.dup-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.dup-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.dup-item.open .dup-row {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+
+/* 技能名 */
+.dup-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 当前采用的来源（摘要） */
+.dup-current {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+/* 用户手动选过的 → 用信号色强调；没动的 → 显示「默认」灰标 */
+.dup-current.manual {
+  color: var(--signal);
+  font-weight: 700;
+}
+.dup-def {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline-strong);
+  color: var(--faint);
+}
+
+/* 来源数量徽标 */
+.dup-count {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--faint);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* 展开态：来源单选列表 */
+.dup-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 10px 26px;
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.6));
+}
+.dup-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.dup-opt:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.dup-files {
+  margin-left: auto;
+  flex: none;
+  font-size: 9.5px;
+  color: var(--faint);
+}
+/* 圆点单选指示 */
+.dup-tick {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hairline-strong);
+  flex: none;
+  transition: all 0.12s ease;
+}
+.dup-opt.on {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+  color: var(--ink);
+}
+.dup-tick.on {
+  border-color: var(--signal);
+  background: var(--signal);
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+
+/* 进度弹窗里的加载图标 */
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* 进度弹窗的每一行 */
+.prog-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+.prog-line:last-child {
+  border-bottom: none;
+}
+
+
+/*
+ * 警告图标 + 悬停说明气泡。
+ * 气泡是 portal 到 body 的 position:fixed 元素（见 components/warn-tip.tsx），
+ * 因此这里不需要 position:relative 的祖先，也不会被 overflow 裁掉。
+ */
+.warn-tip-icon {
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  flex: none;
+  outline: none;
+}
+.warn-tip-float {
+  position: fixed;
+  /* 用 translate 把气泡居中并抬到图标上方（top 已由 JS 给到图标上沿） */
+  transform: translate(-50%, -100%);
+  width: max-content;
+  max-width: 340px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  text-align: left;
+  white-space: normal;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  animation: warn-tip-in 0.13s ease;
+}
+/* 下方显示：气泡在图标下面，三角朝上 */
+.warn-tip-float.below {
+  transform: translate(-50%, 0);
+}
+.warn-tip-float::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+.warn-tip-float.below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--ink);
+}
+@keyframes warn-tip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.chip-x {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.65;
+  border-radius: 3px;
+}
+.chip-x:hover {
+  opacity: 1;
+  background: rgba(var(--signal-raw), 0.18);
+}
+
+/* ---------- 提示词页 ---------- */
+.prompts-layout {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+.prompt-list {
+  padding: 12px 10px;
+}
+.prompt-editor {
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 980px) {
+  .prompts-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- 会话页 ---------- */
+.session-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 20px;
+}
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.msg {
+  max-width: 82%;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.msg:last-child {
+  border-bottom: none;
+}
+.msg-role {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 5px;
+}
+.msg-user {
+  align-self: flex-end;
+  text-align: right;
+}
+.msg-user .msg-role {
+  color: var(--signal);
+}
+.msg-user .msg-bubble {
+  display: inline-block;
+  text-align: left;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 9px 13px;
+  border-radius: 10px 3px 10px 10px;
+}
+.msg-bubble {
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-assistant {
+  align-self: flex-start;
+}
+.msg-assistant .msg-bubble {
+  padding: 0;
+}
+.composer {
+  flex: none;
+  padding: 12px 14px 13px;
+  /* 与全局 .glass 同一套玻璃语言（半透明底 + 模糊 + 顶缘暗线），
+     不再用「几乎全透明 + 白色顶边」那种看不见的旧写法 */
+  background: var(--surf);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  border-top: 1px solid var(--surf-border);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light);
+}
+.composer .prompt-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.composer .prompt-char {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--signal);
+  padding-top: 8px;
+  user-select: none;
+}
+.composer .textarea {
+  border: none;
+  box-shadow: none;
+  padding: 8px 0;
+  background: transparent;
+}
+.composer .textarea:focus {
+  box-shadow: none;
+}
+.session-history {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.session-history .card-row {
+  flex: none;
+  width: 260px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  cursor: default;
+}
+.session-history .card-row:last-child {
+  border: 1px solid var(--hairline);
+}
+
+/* ---------- 沙箱 / 设置 ---------- */
+.sandbox-grid {
+  display: grid;
+  grid-template-columns: 330px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .sandbox-grid,
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- 表单 ---------- */
+.form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.form-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 620px) {
+  .form-2col {
+    grid-template-columns: 1fr;
+  }
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field > span {
+  font-family: var(--font-mono);
+  /* 用户反馈：10px + faint 色「特别不明显看不清」，加大加浓 */
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+/* 区块说明文字（.field 内的 .sub）：跟随加深，别再糊成一片 */
+.field > .sub {
+  color: var(--muted);
+}
+
+/* ---------- 空状态 ---------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-md);
+  color: var(--faint);
+}
+
+/* ---------- 弹窗：苹果透明玻璃 + 压暗遮罩 ---------- */
+/*
+ * 弹窗遮罩 —— 只负责「压暗」，不再替弹窗代偿模糊。
+ *
+ * ══ 推翻了之前写在这里的结论 ══════════════════════════════
+ * 旧注释断言「带 backdrop-filter 的遮罩会建立背景根，导致弹窗自己的
+ * backdrop-filter 失效，所以必须靠遮罩 blur 来糊背景」。
+ * 这条**实测不成立**（tools/nest-proof.mjs，真 DOM 嵌套：
+ * .modal-overlay 父 → .modal-card 子，8px 锐条纹底）：
+ *     遮罩无 filter + 面板 blur(34) → 条纹保留 1.2%
+ *     遮罩 blur(20)  + 面板 blur(34) → 条纹保留 0.8%
+ * 两者无差别 ⇒ 面板的模糊照常穿透父级遮罩生效。
+ *
+ * 再用 260px 大色块复验（tools/coarse-proof.mjs），面板内亮度剖面：
+ *     不加 filter： 146 160 160 160 243 243 243 → 色块边界原样穿透
+ *     加 blur(34)： 145 160 160 171 204 234 242 → 边界被糊成台阶
+ * 结论确认。
+ *
+ * ══ 所以遮罩现在这么写 ═══════════════════════════════════
+ *   · 背景 rgba(22,26,36,0.18)（暗色 0.34）：**压暗**即可，
+ *     让面板亮起来形成对比；旧写法 rgba(paper,0.86) 把背景糊成一张纸，
+ *     面板再亮也无从对比（实测对比度只有 5.8/255，等于没有）。
+ *   · 不透明度不再拉到 0.86 —— 那是「弹窗透字」的旧补偿手段，
+ *     现在由面板自身的 blur(34px) 负责，0.18 反而更通透、更像玻璃。
+ *   · 仍然**不带** backdrop-filter：面板自己会糊，遮罩再糊一遍是白花钱。
+ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--veil);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.modal-card {
+  max-width: min(94vw, 720px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--hairline);
+}
+.modal-body {
+  padding: 18px 20px 20px;
+  overflow: auto;
+}
+
+/* ---------- Toast ---------- */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  animation: toast-in 0.18s ease both;
+}
+.toast::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-top: 4px;
+  background: var(--faint);
+}
+.toast-ok::before { background: var(--ok); }
+.toast-info::before { background: var(--signal); }
+.toast-warn::before { background: var(--warn); }
+.toast-bad::before { background: var(--bad); }
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- 运行日志 ---------- */
+.runtime-log {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.runtime-log-line {
+  display: flex;
+  gap: 10px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.runtime-log-line:last-child {
+  border-bottom: none;
+}
+.runtime-log-ts {
+  color: var(--faint);
+  flex: none;
+}
+.log-info { color: var(--muted); }
+.log-ok { color: var(--ok); }
+.log-warn { color: var(--warn); }
+.log-err { color: var(--bad); }
+
+/* ---------- 布局补丁 ---------- */
+.topbar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ---------- 规则自检结果框 ---------- */
+.rule-box {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 5px 0 0;
+  max-height: 150px;
+  overflow: auto;
+}
+
+/* ---------- 配置行 + 开关（云过审用，对齐原 settings-row） ---------- */
+.cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+.cfg-row:last-child {
+  border-bottom: none;
+}
+.cfg-copy {
+  flex: 1;
+  min-width: 0;
+}
+.cfg-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.cfg-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.toggle {
+  width: 42px;
+  height: 24px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.8));
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.toggle-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 3px rgba(var(--hover-raw), var(--hover-alpha));
+  transition: transform 0.16s cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+.toggle.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  justify-content: flex-end;
+}
+.toggle.on .toggle-thumb {
+  transform: translateX(0);
+  background: var(--paper);
+}
+
+/* 小号药丸开关：技能列表逐行勾选用（图二样式，开=墨色底白钮靠右） */
+.toggle-sm {
+  width: 32px;
+  height: 18px;
+  padding: 2px;
+  margin-top: 1px;
+}
+.toggle-sm .toggle-thumb {
+  width: 14px;
+  height: 14px;
+}
+/* 汇总行迷你勾选标记 */
+.pick-tick {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  border: 1px solid var(--hairline-strong);
+  color: var(--paper);
+  background: transparent;
+}
+.pick-tick.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+/* 技能行右侧展开箭头 */
+.pick-skill-row .chev {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.5;
+}
+
+/* ---------- 云过审两栏布局（铺满，去掉限宽） ---------- */
+.cloud-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .cloud-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 规则表编辑器行 */
+.rule-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rule-arrow {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex: none;
+}
+.rule-edit-row .input {
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+/* ---------- 右侧抽屉（SKILL.md 编辑器） ---------- */
+/*
+ * 与 .modal-overlay 同一套：遮罩只**压暗**，模糊交给抽屉自己的
+ * .glass-strong 负责（实测遮罩的 filter 不影响子元素模糊，见
+ * tools/nest-proof.mjs）。旧写法 rgba(paper,0.5) 会把背景糊成一片纸白。
+ */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: var(--veil);
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer {
+  width: min(760px, 72vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  /* 左缘描边与 .glass-strong 的边框同色（发丝暗线，不是白线） */
+  border-left: 1px solid var(--pane-border);
+  animation: drawer-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.drawer-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.drawer-editor {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  resize: none;
+  padding: 16px 20px;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+.drawer-editor:focus {
+  box-shadow: none;
+}
+.drawer-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ============================================================
+   目标页：三栏工作台（版本 | 安装 | 真实数据）
+   设计意图：
+     · 消除右侧大片空白 —— 把「技能库/提示词/注入点」真实磁盘内容
+       作为常驻右栏，而不是埋在底部要滚动才看得到
+     · 安装操作固定在中栏顶部（sticky），按钮始终在视野内
+     · 版本列表独立滚动，切版本不用整页滚
+   ============================================================ */
+.tgt-workspace {
+  display: grid;
+  /* 三栏权重：版本较窄、安装中等、真实数据最宽。
+     用 minmax(0, Nfr) 而不是 minmax(230px, …)：
+     后者会让「内容最小宽度」参与计算，内容一长就把第三栏挤出视口。 */
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  /* 行高也必须约束。只写 columns 时隐式行是 auto = 内容高度，
+     列表一长整行就高过容器，被外层 overflow:hidden 裁掉，
+     里面的 .tgt-scroll 拿到的是「满内容高度」而不是「受限高度」→ 永远不出滚动条。
+     100% 让行严格等于工作台高度，滚动职责才真正落到 .tgt-scroll 上。 */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  max-width: none !important;
+  overflow: hidden;
+  padding-bottom: 12px;
+  /* 让工作台吃掉 .page-body 的剩余高度（配合 .page-body 的 min-height:0） */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tgt-col {
+  /* min-width: 0 是必须的：grid 子项默认 min-width:auto，
+     长路径/长描述会把列撑宽并把后面的列挤出视口。
+     min-height: 0 同理：否则列高由内容决定，子项 .tgt-scroll 无法压缩。 */
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tgt-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+/* 提示词页复用工作台骨架：列表窄、正文宽 */
+.prompt-workspace {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 2.2fr);
+}
+
+/* 技能库：包列表最窄、技能列表最宽（勾选行要放得下开关+标题+三个按钮）、信息栏中等 */
+.skills-workspace {
+  grid-template-columns: minmax(0, 0.62fr) minmax(0, 1.75fr) minmax(0, 0.95fr);
+}
+
+/* 中栏安装卡：固定在视野内，且按内容高度（不拉满整列，否则下方留一大片空白） */
+.tgt-card.sticky {
+  position: sticky;
+  top: 0;
+  flex: 0 0 auto;
+}
+.tgt-scroll {
+  flex: 1;
+  min-height: 0;
+  /* 必须显式给 overflow-y，否则内容超高时被裁剪而不是滚动。
+     页面本身 overflow:hidden，所以这里承担全部滚动职责。 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0 -4px;
+  padding: 0 4px 8px;
+  overscroll-behavior: contain;
+}
+
+/* 右栏里的技能/提示词条目 */
+.side-skill {
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border-bottom: 1px solid var(--hairline);
+  transition: background 0.12s ease;
+}
+.side-skill:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.side-skill:last-child {
+  border-bottom: none;
+}
+.side-skill-desc {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 1400px) {
+  .tgt-workspace {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+  /* 窄屏时真实数据面板折到第二行并跨满宽 */
+  .tgt-workspace > .tgt-col:nth-child(3) {
+    grid-column: 1 / -1;
+    max-height: 380px;
+  }
+  .tgt-card.sticky {
+    position: static;
+  }
+}
+@media (max-width: 900px) {
+  .tgt-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .tgt-workspace > .tgt-col:nth-child(3) {
+    grid-column: auto;
+    max-height: none;
+  }
+}
+
+/* ---------- 注入日志浮动条 ---------- */
+.log-dock {
+  position: fixed;
+  left: var(--sidebar-w, 0);
+  right: 240px;
+  bottom: 0;
+  z-index: 60;
+  /* 与全局 .glass 同一套玻璃语言 */
+  border-top: 1px solid var(--surf-border);
+  background: var(--surf-strong);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light);
+}
+.log-dock-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.log-dock-head:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.log-dock-body {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ---------- 注入点详情卡 ---------- */
+.inj-point {
+  border-bottom: 1px solid var(--hairline);
+}
+.inj-point:last-child {
+  border-bottom: none;
+}
+.inj-point-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 4px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: background 0.12s ease;
+}
+.inj-point-head:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.inj-point-path {
+  font-size: 11px;
+  font-weight: 600;
+  word-break: break-all;
+  line-height: 1.4;
+}
+.inj-point-meta {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.inj-chev {
+  flex: none;
+  opacity: 0.45;
+  transition: transform 0.18s ease;
+}
+.inj-chev.on {
+  transform: rotate(180deg);
+}
+.inj-point-body {
+  padding: 4px 4px 12px;
+  animation: rise 0.16s ease both;
+}
+.kv {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 10.5px;
+  border-bottom: 1px dashed var(--hairline);
+}
+.kv:last-of-type {
+  border-bottom: none;
+}
+.kv > span {
+  flex: none;
+  width: 70px;
+  color: var(--faint);
+  font-weight: 600;
+}
+.kv > code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* ---------- 技能勾选行 ---------- */
+.pick-skill {
+  border-bottom: 1px solid var(--hairline);
+  padding: 2px 0;
+}
+/* 勾选状态只用开关本身表达（图二样式）。
+   早先这里给整行加 rgba(signal,0.04) 底色，一屏十几行全带色块很难看，已去掉。 */
+.pick-skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: var(--r-sm);
+}
+.pick-skill-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.pick-box {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.pick-box:hover {
+  border-color: var(--ink);
+}
+.pick-skill-detail {
+  font-size: 9.5px;
+  color: var(--muted);
+  padding: 6px 10px 8px 30px;
+  line-height: 1.6;
+  word-break: break-all;
+  animation: rise 0.15s ease both;
+}
+
+/* ---------- 版本清单行右侧操作（编辑 / 删除） ---------- */
+.rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  /* 平时低调，悬停整行才显出来，避免每行两个图标太吵 */
+  opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+.card-row:hover .rail-actions,
+.rail-actions:focus-within {
+  opacity: 1;
+}
+
+/* ---------- 目录选择器 ---------- */
+.pick-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.5));
+}
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+.crumb:hover {
+  background: var(--pill);
+  color: var(--ink);
+}
+.pick-list {
+  flex: 1;
+  min-height: 260px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 6px 10px;
+}
+.pick-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.pick-entry:hover {
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 1.4));
+}
+.pick-entry svg {
+  color: var(--muted);
+  flex: none;
+}
+.pick-entry.file {
+  color: var(--muted);
+}
+.file-dot {
+  width: 11px;
+  height: 13px;
+  flex: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+}
+
+/* ---------- 预设组合展示（提示词 + 技能库） ---------- */
+.preset-pair {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+.preset-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preset-part.dim {
+  opacity: 0.5;
+  font-style: italic;
+}
+.preset-part svg {
+  flex: none;
+  opacity: 0.6;
+}
+.preset-plus {
+  font-size: 9px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+}
+
+/* ---------- 模块库文件夹（技能包内的 _modules） ---------- */
+.mod-folder {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.5));
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.mod-folder-row {
+  cursor: pointer;
+  padding: 8px 9px;
+}
+.mod-folder-row:hover {
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+}
+.mod-files {
+  border-top: 1px solid var(--hairline);
+  padding: 4px 9px 6px 26px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.mod-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.mod-file-row svg {
+  flex: none;
+  opacity: 0.5;
+}
+
+/* ---------- 错误边界 ---------- */
+.error-trace {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  padding: 11px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+  background: var(--bad-soft);
+  color: var(--bad);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 10px;
+  max-height: 260px;
+  overflow: auto;
+}
+.error-trace.dim {
+  border-color: var(--hairline);
+  background: rgba(var(--hover-raw), var(--hover-alpha));
+  color: var(--muted);
+}
+
+/*
+ * 页面进场：淡入 + 轻微上浮。
+ *
+ * ══ 动画结束后必须清掉 transform（真机 bug：弹窗被关在页面里）══════════
+ * 原先 `.anim-page { animation: rise ... both }` —— `both` 会让动画结束后
+ * **永久保留最后一帧**的 `transform: translateY(0)`，computed 值就是
+ * `matrix(1, 0, 0, 1, 0, 0)`（不是 `none`）。
+ * 而按 CSS 规范，**任何非 none 的 transform 都会给 position:fixed 的
+ * 后代创建包含块** —— 于是 .page 里的弹窗（.modal-overlay / 抽屉）
+ * 不再相对视口定位，而是被限制在 .page 的矩形内：
+ *   实测 fixed 探针拿到 1178x731（.main 区域）而不是 1418x802（视口），
+ *   遮罩盖不住顶栏与左侧，安装进度弹窗看起来"错位/残缺"。
+ * 修法：让 transform 在动画结束时**回到 none**。用 `forwards` 保留
+ * opacity、但把 keyframes 的终点 transform 去掉是不够的（from 仍有
+ * transform，插值期间照样建包含块），所以改成**动画结束后摘掉动画**：
+ * 保留 0.26s 的进场，结束即无 transform。
+ */
+@keyframes rise-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/*
+ * .anim-page 用「位移 + 淡入」但**不保留** transform：
+ * 靠 animationend 由 CSS 无法自动摘除，所以这里改用
+ * `animation-fill-mode: none`（默认）+ 起点 opacity 由 keyframe 控制。
+ * 视觉上仍是 0.26s 的淡入上浮，动画一结束 transform 立刻消失，
+ * 弹窗随即恢复相对视口定位。
+ * 注：动画播放的那 260ms 内 fixed 后代仍会短暂被包含 —— 但弹窗不可能
+ * 在页面进场动画播放期间就打开，实际无影响。
+ */
+.anim-page {
+  animation: rise 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.anim-pop {
+  animation: rise-fade 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(var(--ink-raw), 0.06) 40%,
+    rgba(var(--ink-raw), 0.14) 50%,
+    rgba(var(--ink-raw), 0.06) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   总览页 · Pidan 风格（苹果玻璃拟态 + 液态黑水泡文字反色）
+   ------------------------------------------------------------
+   原理：底层黑字 Hero；fixed 圆形水泡内放一份白字 Hero 副本，
+   用反向位移逐像素对齐 → 水泡盖到哪里，文字就「反色」到哪里。
+   参考实现：pidanai.com（cursor-reveal / liquid-blob）
+   ============================================================ */
+
+.dash-page {
+  /*
+   * 水珠半径（px）。与 dashboard.tsx 同源 —— 那里也从 CSS 变量读。
+   * 95 = 直径 190px：刚好罩住一个汉字并留出折射边，比之前 300px 更聚焦。
+   */
+  --blob-r: 95px;
+
+  /* Hero 视差（JS 写入）：文字层用 tilt/move，背景层用 grid（反向） */
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --move-x: 0px;
+  --move-y: 0px;
+  --grid-x: 0px;
+  --grid-y: 0px;
+
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* 点阵是 .dash-page::before 的 absolute 定位基准 */
+  position: relative;
+}
+
+/* ---------- Hero 舞台 ---------- */
+.hero-stage {
+  position: relative;
+  display: block;
+  /* 用 min() 让矮窗口也不会撑出滚动条 */
+  min-height: min(68vh, 680px);
+  padding: clamp(24px, 4vh, 56px) clamp(14px, 3vw, 24px) clamp(16px, 2vh, 28px);
+  text-align: center;
+  /* 不裁切：内容已自适应，overflow:hidden 只会掩盖布局问题 */
+  overflow: visible;
+}
+.core-content { position: absolute; z-index: 3; top: 46%; left: 50%; width: min(760px, calc(100% - 32px)); transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.core-overline { display: inline-flex; gap: 8px; align-items: center; color: var(--faint); font: 700 9px var(--font-mono); letter-spacing: .16em; }
+.core-overline span { padding: 3px 7px; border: 1px solid var(--hairline); border-radius: 99px; color: var(--signal); font-size: 8px; letter-spacing: .08em; }
+.core-halo { position: absolute; z-index: 1; top: 46%; left: 50%; width: min(500px, 52vw); aspect-ratio: 1; transform: translate(-50%, -50%); border: 1px solid rgba(var(--ink-raw), .12); border-radius: 50%; background: radial-gradient(circle at 50% 48%, rgba(255,255,255,.7), rgba(255,255,255,.18) 42%, transparent 70%); box-shadow: 0 0 0 22px rgba(255,255,255,.09), 0 0 0 23px rgba(var(--ink-raw), .06), inset 0 0 80px rgba(255,255,255,.42), 0 30px 70px rgba(var(--ink-raw), .1); animation: core-breathe 5s ease-in-out infinite; }
+.core-halo-inner { position: absolute; inset: 14%; border: 1px dashed rgba(var(--signal-raw), .28); border-radius: 50%; animation: orbit-spin 32s linear infinite reverse; }
+@keyframes core-breathe { 50% { transform: translate(-50%, -50%) scale(1.035); box-shadow: 0 0 0 30px rgba(255,255,255,.06), 0 0 0 31px rgba(var(--ink-raw), .05), inset 0 0 100px rgba(255,255,255,.48), 0 36px 86px rgba(var(--ink-raw), .12); } }
+.core-axis { position: absolute; z-index: 1; left: 50%; top: 46%; background: rgba(var(--ink-raw), .08); pointer-events: none; }
+.core-axis-x { width: min(920px, 78vw); height: 1px; transform: translate(-50%, -50%); }
+.core-axis-y { width: 1px; height: min(490px, 52vh); transform: translate(-50%, -50%); }
+.hero-orbit { position: absolute; border: 1px solid rgba(var(--ink-raw), 0.18); border-radius: 50%; pointer-events: none; transform: translate(var(--move-x), var(--move-y)); transition: transform .18s ease-out; box-shadow: 0 0 0 1px rgba(255,255,255,.18), inset 0 0 36px rgba(var(--ink-raw), .025); }
+.hero-orbit::before { content: ''; position: absolute; inset: 12px; border: 1px dashed rgba(var(--ink-raw), .12); border-radius: inherit; animation: orbit-spin 24s linear infinite; }
+.hero-orbit::after { content: ''; position: absolute; width: 9px; height: 9px; top: 13%; right: 8%; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 6px var(--signal-soft), 0 0 28px rgba(var(--signal-raw), .46); animation: orbit-node 2.8s ease-in-out infinite; }
+.hero-orbit-a { width: 590px; height: 285px; top: 76px; left: calc(50% - 295px); transform: translate(var(--move-x), var(--move-y)) rotate(-8deg); }
+.hero-orbit-b { width: 780px; height: 370px; top: 34px; left: calc(50% - 390px); opacity: .7; transform: translate(var(--grid-x), var(--grid-y)) rotate(12deg); }
+@keyframes orbit-spin { to { transform: rotate(360deg); } }
+@keyframes orbit-node { 50% { transform: scale(1.35); box-shadow: 0 0 0 9px var(--signal-soft), 0 0 34px rgba(var(--signal-raw), .6); } }
+/* 微点阵背景由 .dash-page::before 提供（仅总览页），这里不重复 */
+
+/* 窄窗口：Hero 高度收紧，避免首屏只有标题 */
+@media (max-height: 700px) {
+  .hero-stage {
+    min-height: auto;
+    padding-top: 28px;
+    padding-bottom: 20px;
+  }
+}
+@media (max-width: 560px) {
+  .hero-stage {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .hero-title {
+    /* 极窄窗口允许折行，比裁掉更好 */
+    white-space: normal;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 0;
+  }
+  .hero-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+}
+
+/* ---------- Hero 文案 ---------- */
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 1100px;
+  /*
+   * 视差倾斜：perspective 制造纵深，rotateX/Y 随鼠标偏转，
+   * translate 做轻微跟随。整个 Hero 像一块悬浮的玻璃板。
+   */
+  transform:
+    perspective(900px)
+    rotateX(var(--tilt-x))
+    rotateY(var(--tilt-y))
+    translate3d(var(--move-x), var(--move-y), 0);
+  will-change: transform;
+  /* 泡内副本不能自己再倾斜 —— 它靠反向位移对齐，加倾斜会错位 */
+  transform-style: flat;
+}
+
+.hero-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+}
+.hero-context-line {
+  width: 26px;
+  height: 1px;
+  background: var(--signal);
+}
+.hero-context-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ok);
+  letter-spacing: 0.04em;
+}
+.hero-signal-strip { position: relative; z-index: 2; display: grid; grid-template-columns: auto minmax(120px, 220px) auto auto; align-items: center; gap: 10px; width: min(510px, 100%); margin-top: 4px; padding: 8px 11px; border: 1px solid var(--hairline); border-radius: 999px; background: rgba(var(--hover-raw), calc(var(--hover-alpha) * .7)); -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%); box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 10px 28px var(--surf-shadow-far); animation: signal-in .7s cubic-bezier(.2,.8,.2,1) both; }
+.signal-label, .signal-value { font: 700 9px var(--font-mono); letter-spacing: .12em; white-space: nowrap; }
+.signal-label { color: var(--muted); } .signal-value { color: var(--ok); }
+.signal-pulse { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); animation: pulse 1.8s ease-in-out infinite; }
+.signal-track { height: 4px; overflow: hidden; border-radius: 99px; background: rgba(var(--ink-raw), .09); }
+.signal-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ok), var(--signal)); transition: width .6s ease; }
+.signal-arrow { color: var(--faint); }
+@keyframes pulse { 50% { opacity: .45; transform: scale(.7); } }
+@keyframes signal-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-title {
+  margin: 0;
+  /*
+   * 字号自适应：
+   *   下限从 44px 降到 26px，并加入 vmin —— 窗口变窄/变矮时字真的会跟着缩。
+   *   早先写 clamp(44px, 7.2vw, 104px)，下限太高；标题又是 nowrap，
+   *   窗口一缩字不再变小、整行超出容器，被 .hero-stage 的 overflow:hidden 裁掉
+   *   —— 这就是「画面主题被截断」的直接原因。
+   *   vmin 让竖屏窄窗口也按高度收缩，避免只按宽度算导致纵向溢出。
+   */
+  font-size: clamp(26px, min(7.2vw, 11vmin), 104px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  font-weight: 900;
+  color: var(--ink);
+  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.04em;
+  /* 极端窄窗口（<380px）下允许换行，宁可两行也不要被裁 */
+  max-width: 100%;
+}
+
+/* 粗细混排：主名特粗，后半段用较细字重，形成 Pidan 那种节奏 */
+.hero-title .title-strong {
+  font-weight: 900;
+}
+.hero-title .title-light {
+  font-weight: 300;
+  letter-spacing: -0.01em;
+}
+.hero-title .title-comma {
+  font-weight: 300;
+  opacity: 0.85;
+}
+
+.hero-subtitle {
+  font-size: clamp(13px, 1.4vw, 17px);
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* ---------- 玻璃统计按钮 ---------- */
+.dash-stats {
+  position: relative;
+  z-index: 2;
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+  max-width: none;
+}
+.dash-stats .glass-stat { position: absolute; width: 184px; pointer-events: auto; }
+.dash-stats .glass-stat:nth-child(1) { left: 5%; top: 34%; }
+.dash-stats .glass-stat:nth-child(2) { right: 5%; top: 34%; }
+.dash-stats .glass-stat:nth-child(3) { left: 10%; top: 60%; }
+.dash-stats .glass-stat:nth-child(4) { right: 10%; top: 60%; }
+
+/* 窄窗口：统计卡改为等分网格，避免逐个换行显得零散 */
+@media (max-width: 900px) {
+  .dash-stats {
+    display: grid;
+    position: relative;
+    inset: auto;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 10px;
+    width: 100%;
+    max-width: 560px;
+  }
+  .glass-stat {
+    min-width: 0;
+    padding: 11px 13px;
+  }
+  .glass-stat-num {
+    font-size: 21px;
+  }
+  .dash-stats .glass-stat { position: relative; width: auto; }
+  .dash-actions { position: relative; left: auto; bottom: auto; transform: none; margin: 22px auto 0; width: fit-content; }
+}
+@media (max-width: 420px) {
+  .dash-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/*
+ * 「苹果透明玻璃」配方 —— 与全局 .glass 同一套语言（用 --surf-* 变量）。
+ *
+ * ⚠️ 推翻了这里旧注释的结论。旧注释说「刻意不用 backdrop-filter，
+ *    因为点阵只有 1.2px，blur 会把它的能量摊开 ⇒ 变成一片糊白」。
+ *    这条对「靠点阵透出来做质感」成立，但代价是卡片完全没有玻璃感，
+ *    用户反馈「白色主题的卡片不是玻璃」。现在改为**卡片也模糊**：
+ *    点阵留在卡片外的背景上呈现，卡片自身靠半透明 + 模糊 + 发丝边表达厚度。
+ *
+ * 厚度感靠边缘四层叠加：
+ *   ① 外圈 1px 发丝暗描边  —— 玻璃切面（亮色下必须是暗线）
+ *   ② 顶缘 1.5px 亮线      —— 受光边
+ *   ③ 底缘 1px 暗线        —— 背光边（有明暗对比才有厚度）
+ *   ④ 双层投影             —— 把卡片抬离页面
+ */
+.glass-stat {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto auto;
+  align-items: baseline;
+  column-gap: 8px;
+  padding: 12px 16px 13px;
+  min-width: 158px;
+  text-align: left;
+  border: 1px solid var(--surf-border);
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(255,255,255,.76), rgba(255,255,255,.32));
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 2px var(--surf-shadow-near),
+    0 12px 32px var(--surf-shadow-far);
+  cursor: pointer;
+  color: var(--ink);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.glass-stat:hover {
+  transform: translateY(-3px);
+  border-color: var(--pane-border);
+  background: var(--surf-hover);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 4px 10px var(--surf-shadow-near),
+    0 22px 50px var(--surf-shadow-far);
+}
+.glass-stat:active {
+  transform: translateY(-1px) scale(0.985);
+}
+
+.glass-stat > svg { opacity: 0.55; }
+.glass-stat-top { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.glass-stat-code { color: var(--faint); font: 700 9px var(--font-mono); letter-spacing: .12em; }
+.glass-stat-num {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.glass-stat-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.glass-stat-hint {
+  grid-column: 2;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.glass-stat-line { grid-column: 1 / -1; height: 3px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: rgba(var(--ink-raw), .08); }
+.glass-stat-line::after { content: ''; display: block; width: 34%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ok), var(--signal)); animation: stat-scan 2.8s ease-in-out infinite; }
+@keyframes stat-scan { 50% { width: 78%; opacity: .58; } }
+.glass-stat-cta .glass-stat-num {
+  color: var(--ok);
+}
+
+/* ---------- 玻璃按钮 ---------- */
+.dash-actions {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  left: 50%;
+  bottom: 28px;
+  margin-top: 0;
+  transform: translateX(-50%);
+  padding: 7px;
+  border: 1px solid var(--surf-border);
+  border-radius: 18px;
+  background: rgba(255,255,255,.25);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 16px 40px var(--surf-shadow-far);
+}
+
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px 8px 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border: 1px solid var(--surf-border);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(255,255,255,.75), rgba(255,255,255,.32));
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 2px var(--surf-shadow-near),
+    0 10px 26px var(--surf-shadow-far);
+  cursor: pointer;
+  color: var(--ink);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.glass-btn:hover {
+  transform: translateY(-2px);
+  border-color: var(--pane-border);
+  background: var(--surf-hover);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 4px 10px var(--surf-shadow-near),
+    0 18px 40px var(--surf-shadow-far);
+}
+.glass-btn:active {
+  transform: scale(0.97);
+}
+/*
+ * 主按钮：亮色下油墨黑底 + 白字。
+ * 同理用明确色值 —— var(--ink) 在暗色主题里是**浅色**，
+ * 配上 color:#fff 会变成白底白字。
+ */
+.glass-btn-primary {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 60%),
+    #101013;
+  border-color: rgba(16, 16, 19, 0.9);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 10px 26px rgba(var(--ink-raw), 0.28);
+}
+.glass-btn-primary:hover {
+  border-color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 14px 32px rgba(var(--ink-raw), 0.34);
+}
+.glass-btn-sm {
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+/* ---------- 下方卡片区 ---------- */
+.dash-cards {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 16px;
+  /* padding 随视口收缩，窄窗口不留过多空白 */
+  padding: clamp(6px, 1.5vw, 8px) clamp(12px, 3vw, 28px) 0;
+  max-width: 1240px;
+  width: 100%;
+  margin: 0 auto;
+  position: relative;
+  z-index: 2; /* 卡片在水泡之上：泡从底下经过时不会被文字压住 */
+}
+.glass-btn-index { padding-right: 9px; border-right: 1px solid var(--hairline); color: var(--signal); font: 700 9px var(--font-mono); letter-spacing: .06em; }
+.dash-actions .glass-btn { min-width: 128px; justify-content: center; }
+.dash-actions .glass-btn > svg:last-child { color: var(--faint); transition: transform .16s ease; }
+.dash-actions .glass-btn:hover > svg:last-child { transform: translateX(3px); }
+.glass-stat-line { grid-column: 1 / -1; height: 3px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: rgba(var(--ink-raw), .08); }
+.glass-stat-line::after { content: ''; display: block; width: 34%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ok), var(--signal)); animation: stat-scan 2.8s ease-in-out infinite; }
+@keyframes stat-scan { 50% { width: 78%; opacity: .58; } }
+.glass-card-wide {
+  grid-column: 1 / -1;
+}
+.glass-card-caption {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.45));
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+.workflow-step:hover {
+  transform: translateY(-2px);
+  background: var(--surf-hover);
+  border-color: var(--surf-border-strong);
+}
+.workflow-step > span:nth-child(2) { flex: 1; min-width: 0; }
+.workflow-step b, .workflow-step small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-step b { font-size: 12px; }
+.workflow-step small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.workflow-index { color: var(--signal); font-family: var(--font-mono); font-size: 10px; font-weight: 700; }
+.workflow-step > svg { flex: none; color: var(--faint); }
+.workflow-step-active { border-color: rgba(var(--signal-raw), 0.3); background: var(--signal-soft); }
+@media (max-width: 900px) {
+  .dash-cards {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .workflow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .workflow-grid { grid-template-columns: 1fr; }
+  .hero-context { font-size: 9px; letter-spacing: 0.08em; }
+  .hero-signal-strip { grid-template-columns: 1fr auto; border-radius: 16px; }
+  .signal-track { grid-column: 1 / -1; grid-row: 2; }
+  .signal-arrow { display: none; }
+  .hero-orbit-a { width: 340px; left: calc(50% - 170px); }
+  .hero-orbit-b { width: 460px; left: calc(50% - 230px); }
+}
+
+.glass-card {
+  border: 1px solid var(--surf-border);
+  border-radius: 24px;
+  padding: 18px 18px 14px;
+  background: var(--surf);
+  -webkit-backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  backdrop-filter: blur(var(--surf-blur)) saturate(150%);
+  box-shadow:
+    inset 0 1.5px 0 var(--surf-edge-light),
+    inset 0 -1px 0 var(--surf-edge-dark),
+    0 1px 2px var(--surf-shadow-near),
+    0 14px 38px var(--surf-shadow-far);
+  animation: card-rise .7s cubic-bezier(.2,.8,.2,1) both;
+}
+.glass-card:nth-child(2) { animation-delay: 80ms; }
+.glass-card:nth-child(3) { animation-delay: 160ms; }
+@keyframes card-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+.glass-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.glass-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  transition: background 0.15s ease;
+}
+.glass-row:hover {
+  background: rgba(var(--ink-raw), 0.05);
+}
+.glass-row-static {
+  cursor: default;
+}
+.glass-row-static:hover {
+  background: transparent;
+}
+
+.glass-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hairline-strong);
+}
+.glass-dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.glass-row-name {
+  font-size: 12.5px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glass-row-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.glass-row-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+}
+
+.glass-empty,
+.glass-note {
+  padding: 10px 10px 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.runtime-meter { margin: 12px 10px 2px; padding-top: 11px; border-top: 1px solid var(--hairline); }
+.runtime-meter-head { display: flex; justify-content: space-between; font: 700 9px var(--font-mono); letter-spacing: .1em; color: var(--faint); }
+.runtime-meter-head b { color: var(--ok); font-weight: 700; }
+.runtime-meter-bars { display: flex; align-items: end; gap: 3px; height: 20px; margin-top: 8px; }
+.runtime-meter-bars i { flex: 1; height: 28%; border-radius: 2px; background: var(--hairline); transition: height .3s ease, background .3s ease; }
+.runtime-meter-bars i:nth-child(3n) { height: 55%; } .runtime-meter-bars i:nth-child(5n) { height: 80%; }
+.runtime-meter-bars i.lit { background: linear-gradient(to top, var(--ok), rgba(14,138,79,.35)); animation: bar-breathe 2.4s ease-in-out infinite; }
+.runtime-meter-bars i:nth-child(2n).lit { animation-delay: 180ms; }
+@keyframes bar-breathe { 50% { opacity: .55; transform: scaleY(.72); transform-origin: bottom; } }
+
+.glass-footer {
+  display: flex;
+  justify-content: center;
+  padding: 26px 0 34px;
+}
+
+/* ---------- 液态水珠（鼠标跟随 + 真实折射） ----------
+   参考 pidanai.com 的 cursor-reveal，但把「反色」换成**真实折射**：
+   用 backdrop-filter 引用 SVG feDisplacementMap 滤镜，把水珠背后的画面
+   按球面法线贴图扭曲 —— 文字经过时被弯折放大，像一滴水落在屏幕上。
+
+   与旧版的区别：
+     · 删掉 mix-blend-mode / 双层文字副本（对不齐，且不是水珠的样子）
+     · 单一元素 + 单一像素源 ⇒ 结构上不可能错位
+     · 只扭曲、不遮挡：透明泡体，下面的卡片与文字依然可读
+*/
+.cursor-blob {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: calc(var(--blob-r) * 2);
+  height: calc(var(--blob-r) * 2);
+  border-radius: 50%;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  /*
+   * 折射本体：backdrop-filter 拿元素背后的画面作输入，
+   * 经 SVG 位移滤镜扭曲后绘制。url 里的 id 由 dashboard.tsx 注入。
+   */
+  -webkit-backdrop-filter: url(#alice-water-drop);
+  backdrop-filter: url(#alice-water-drop);
+  /*
+   * 水珠的立体感：厚壳 —— 外描边 + 内侧两道明暗 + 底部投影。
+   * 用 box-shadow inset 而不是背景色：保持泡体透明，只加「壳」，
+   * 这样折射出来的画面依然清晰，但能看出这是一颗有厚度的水滴。
+   */
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.75),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.18),
+    inset -10px -14px 30px rgba(255, 255, 255, 0.28),
+    inset 12px 16px 34px rgba(0, 0, 0, 0.08),
+    0 14px 44px rgba(var(--ink-raw), 0.16),
+    0 3px 10px rgba(var(--ink-raw), 0.08);
+  /* 极淡底色 + 左上高光：让水珠在纯色区域也能被看见 */
+  background: radial-gradient(
+    circle at 32% 26%,
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0.06) 42%,
+    rgba(255, 255, 255, 0) 62%
+  );
+  will-change: transform, opacity;
+  /*
+   * 位置与缩放都由 JS 写进**同一个 transform**（见 dashboard.tsx 的 applyTransform）：
+   *   translate3d(cx−R, cy−R, 0) scale(s)
+   *   s：正常 1 / 按下 0.82 / 进入顶栏 0.035（收缩成一个点）
+   *   opacity：可见 1 / 离开 0
+   *
+   * 为什么**不用**独立的 `scale` 属性：
+   *   它的合成顺序是 `M = Scale(s) · Translate(t)`，缩放会把位移一起缩掉，
+   *   元素中心从 (cx,cy) 漂到 `(R + s·(cx−R), R + s·(cy−R))`。
+   *   当 s=0.035、鼠标在右侧时中心跑到视口左上角 ——
+   *   表现就是「从右上移走却往左上收缩」（用户实测的现象）。
+   *   写进 transform 内部（translate 在左、scale 在右）后，
+   *   中心恒为 (cx, cy)，与 s 无关。
+   *
+   * 也不要加 transition —— JS 用 rAF 逐帧写值，CSS transition 会被打断，
+   * 两个动画系统抢同一属性会导致卡顿。
+   */
+  /* 注意：不要加 contain —— 它会切断 backdrop-filter 对「背后内容」的采样，
+     水珠会变成一块不折射的灰圆。 */
+}
+/*
+ * 按下态：壳变亮（体积感加强）。
+ * 尺寸缩放由 JS 写进 transform，这里只负责「壳」的表现。
+ */
+.cursor-blob[data-press] {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.9),
+    inset 0 0 0 4px rgba(255, 255, 255, 0.22),
+    inset -10px -14px 30px rgba(255, 255, 255, 0.34),
+    inset 12px 16px 34px rgba(0, 0, 0, 0.1),
+    0 8px 26px rgba(var(--ink-raw), 0.2),
+    0 2px 6px rgba(var(--ink-raw), 0.1);
+}
+
+/* ============================================================
+   极简首页：ALICE 粒子地球控制核
+   ============================================================ */
+.dash-globe-page { --signal: #ff5b2e; --signal-raw: 255,91,46; --signal-soft: rgba(255,91,46,.1); --ok: #0e9b66; --ok-soft: rgba(14,155,102,.1); min-height: calc(100vh - 74px); overflow: hidden; background: transparent; color: var(--ink); }
+.dash-globe-page.globe-dark { --ink: #eef8f5; --ink-raw: 238,248,245; --muted: rgba(238,248,245,.58); --faint: rgba(238,248,245,.32); --hairline: rgba(238,248,245,.14); --hairline-strong: rgba(238,248,245,.28); --surf-border: rgba(238,248,245,.18); --surf-border-strong: rgba(238,248,245,.34); --surf-edge-light: rgba(255,255,255,.28); --surf-edge-dark: rgba(0,0,0,.36); --surf-shadow-far: rgba(0,0,0,.42); --ok: #43e0a4; --ok-soft: rgba(67,224,164,.14); background: transparent; }
+/*
+ * 总览页地板：**沿用全局 .aurora-bg**（与其它页同一套纸色 + 炫彩折射）。
+ * 旧实现自带 linear-gradient 底色，把全局地板整个盖掉 —— 于是总览页
+ * 的底色与其它页不一致（用户指出「背景地板用和其他页一样的背景」）。
+ * 现在只保留一层很淡的球体聚光，底色交给全局。
+ */
+.globe-stage { position: relative; min-height: calc(100vh - 74px); overflow: hidden; isolation: isolate; background: transparent; }
+.globe-dark .globe-stage { background: transparent; }
+/*
+ * 星点层：只保留细星点，不再叠自己的彩色径向渐变（那层会和全局炫彩
+ * 光晕撞色，也是「串色」的来源之一）。底色一律透出全局地板。
+ */
+.globe-backdrop { position: absolute; inset: 0; z-index: -1; background: none; }
+.globe-dark .globe-backdrop { background: none; }
+.globe-backdrop::before { content: ''; position: absolute; inset: 0; opacity: .8; background: radial-gradient(circle at 6% 15%, rgba(255,255,255,.8) 0 1px, transparent 2px), radial-gradient(circle at 12% 63%, rgba(175,240,232,.56) 0 1.5px, transparent 3px), radial-gradient(circle at 22% 31%, rgba(255,255,255,.5) 0 1px, transparent 2px), radial-gradient(circle at 28% 78%, rgba(255,255,255,.72) 0 2px, transparent 4px), radial-gradient(circle at 36% 16%, rgba(173,235,255,.5) 0 1px, transparent 2px), radial-gradient(circle at 43% 88%, rgba(255,255,255,.48) 0 1px, transparent 3px), radial-gradient(circle at 54% 11%, rgba(255,255,255,.75) 0 1.5px, transparent 3px), radial-gradient(circle at 63% 72%, rgba(255,255,255,.38) 0 2px, transparent 4px), radial-gradient(circle at 69% 24%, rgba(171,224,255,.55) 0 1px, transparent 2px), radial-gradient(circle at 78% 84%, rgba(255,255,255,.68) 0 1px, transparent 3px), radial-gradient(circle at 86% 55%, rgba(255,255,255,.44) 0 2px, transparent 4px), radial-gradient(circle at 94% 13%, rgba(255,255,255,.72) 0 1px, transparent 2px); animation: star-drift 18s ease-in-out infinite alternate; }
+/* 暗角已移除：与半透明顶栏叠加会显脏（串色来源之一） */
+.globe-backdrop::after { content: none; }
+
+@keyframes star-drift { to { transform: translate3d(0, 8px, 0) scale(1.02); opacity: .62; } }
+.globe-wordmark { position: absolute; z-index: 5; top: 9%; left: 50%; transform: translateX(-50%); pointer-events: none; }
+.globe-wordmark .hero-copy { gap: 0; }
+.globe-wordmark .hero-title { font-size: clamp(58px, 10vw, 142px); letter-spacing: .08em; }
+.globe-wordmark .title-light { font-weight: 800; }
+.globe-frame { position: absolute; z-index: 2; top: 52%; left: 50%; width: min(720px, 68vw); aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; }
+.globe-frame::before, .globe-frame::after { content: ''; position: absolute; border: 1px solid rgba(173,236,225,.2); border-radius: 50%; pointer-events: none; box-shadow: 0 0 60px rgba(48,190,164,.1); }
+/*
+ * ══ 装饰环必须与球体半径对齐（图2「球与背景错位」的根因）════════════
+ * canvas 内球半径 = 容器边长 × 0.46。旧值：
+ *   ::before inset 2%  → 半径 48%（比球大 2%）
+ *   ::after  inset -3% → 半径 53%（比球大 7%）
+ * 三个圆半径各不相同；基准态 scale(.9) 时偏差被掩盖，放大到 scale(1)
+ * 后错位就肉眼可见。现在统一按 46% 反算 inset：
+ *   inset = (1 - 0.92) / 2 = 4%   → 半径 46%，与球面完全重合
+ *   ::after 外扩到 48% 作为虚线装饰环，保持克制的层次
+ */
+.globe-frame::before { inset: 4%; }
+.globe-frame::after { inset: 2%; border-style: dashed; opacity: .42; animation: globe-ring-spin 36s linear infinite; }
+.particle-globe { display: block; width: 100%; height: 100%; touch-action: none; /* 收起时不可拖：默认箭头；展开时加 .is-draggable 才显示抓取光标 */ cursor: default; }
+.particle-globe.is-draggable { cursor: grab; }
+.particle-globe.is-draggable.is-dragging { cursor: grabbing; }
+.particle-globe.is-dragging { cursor: grabbing; }
+/*
+ * 橙点 hover 卡片（用户指定图2样式：节点 → 水平细线 → 右侧说明卡片）。
+ *
+ * 线的部分由 canvas 画（要跟球一起转、一起缩放），这里只做卡片本身：
+ *   · left: 100% → 卡片左缘正好贴在 canvas 右缘，接上那条线的末端；
+ *   · top: 0 + transform: translate3d(0, hit.y, 0) translateY(-50%)
+ *     → 垂直居中于橙点，与线的右端圆头对齐；
+ *   · 位置每帧由 dashboard.tsx 的 rAF 直接写 transform —— 地球在转，
+ *     橙点 y 每帧都变，走 state 会变成 60fps 的 React 重渲染。
+ * 卡片整体在球体**外面**的留白区，所以不会盖住点云。
+ *
+ * ══ 尺寸（用户要求「这个框大一点」）══════════════════════════════════
+ * 原来 9px/14px 内边距、13px 主标题、10px 状态，视觉上偏小。
+ * 现在整体放大约 1.35 倍：内边距 14/18、主标题 17px、状态 11.5px，
+ * 并给「已注入」多留一行显示预设组名，所以最小宽度定到 210px ——
+ * 否则长预设名会把卡片撑得忽宽忽窄，hover 时跳得厉害。
+ */
+.globe-tip { position: absolute; top: 0; left: calc(100% + 14px); z-index: 5; display: flex; align-items: center; gap: 12px; min-width: 210px; padding: 14px 18px; border: 1px solid var(--surf-border-strong); border-radius: 18px; background: rgba(255,255,255,.9); -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%); box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 18px 40px var(--surf-shadow-far); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .16s ease; will-change: transform; }
+.globe-tip.is-on { opacity: 1; }
+.globe-tip-dot { width: 11px; height: 11px; flex: none; border-radius: 50%; background: #ffb45c; box-shadow: 0 0 0 4px rgba(255,180,92,.2); }
+.globe-tip-dot.is-ready { background: #36d39a; box-shadow: 0 0 0 4px rgba(54,211,154,.2); }
+.globe-tip-body { display: grid; gap: 4px; text-align: left; }
+.globe-tip-label { font: 700 17px/1.1 var(--font-ui); color: var(--ink); }
+.globe-tip-state { font: 600 11.5px/1 var(--font-ui); letter-spacing: .06em; color: var(--faint); }
+/* 已注入：状态用绿色，与橙点/圆点的 is-ready 语义一致 */
+.globe-tip-state.is-ready { color: #1aa877; }
+/*
+ * 预设组名：独立一行、等宽字体 + 主色，和"状态"明确区分开 ——
+ * 用户要的是"显示注入了哪个预设"，这一行才是重点信息。
+ */
+.globe-tip-preset { font: 700 12.5px/1.2 var(--font-mono); color: var(--ink); padding-top: 5px; margin-top: 1px; border-top: 1px solid var(--hairline); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.globe-dark .globe-tip { border-color: rgba(255,255,255,.16); background: rgba(16,26,30,.9); }
+.globe-dark .globe-tip-label { color: #eaf6f3; }
+.globe-dark .globe-tip-state { color: rgba(234,246,243,.6); }
+.globe-dark .globe-tip-state.is-ready { color: #43e0a4; }
+.globe-dark .globe-tip-preset { color: #eaf6f3; border-top-color: rgba(255,255,255,.16); }
+/*
+ * 窄屏（≤900px）：地球铺满视口宽度（112vw），右侧没有留白区可用，
+ * 卡片改为「橙点正上方居中」。此时卡片坐标原点要回到画布左上角
+ * （left:0），才能用 translate3d(hit.x, hit.y) 直接定位。
+ * 引出线在窄屏不画（见 dashboard.tsx 的 wideLayout 判断），保持一致。
+ */
+@media (max-width: 900px) {
+  .globe-tip { left: 0; }
+}
+/*
+ * hover 客户端橙点时把右侧信息面板淡出：卡片正好落在面板那一带，
+ * 两个玻璃面板叠在一起会互相糊掉。淡出后视觉重心明确落在被 hover
+ * 的客户端上（与参考图一致 —— 那图里只有节点 + 线 + 卡片）。
+ */
+.globe-info-panel.is-muted { opacity: 0; transform: translate3d(24px, -50%, 0); pointer-events: none; }
+@keyframes globe-ring-spin { to { transform: rotate(360deg); } }
+.globe-status-rail { position: absolute; z-index: 6; top: 50%; right: clamp(24px, 7vw, 110px); display: flex; flex-direction: column; gap: 12px; transform: translateY(-50%); padding: 10px; border: 1px solid var(--surf-border); border-radius: 24px; background: rgba(255,255,255,.22); -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%); box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 22px 46px var(--surf-shadow-far); }
+.globe-status { position: relative; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: 16px; background: rgba(255,255,255,.28); color: var(--muted); cursor: pointer; transition: transform .2s ease, color .2s ease, background .2s ease, border-color .2s ease; }
+.globe-status:hover { transform: translateX(-4px); color: var(--ink); background: rgba(255,255,255,.58); border-color: var(--surf-border-strong); }
+.globe-status.active { color: var(--signal); background: rgba(255,255,255,.72); border-color: rgba(var(--signal-raw), .32); box-shadow: 0 8px 20px rgba(var(--signal-raw), .16); }
+.globe-status-dot { position: absolute; top: 7px; right: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--hairline-strong); }
+.globe-status-label { position: absolute; bottom: 4px; font: 700 8px var(--font-ui); color: currentColor; opacity: .72; }
+.globe-status.active .globe-status-dot { background: var(--signal); box-shadow: 0 0 0 4px var(--signal-soft); animation: pulse 1.6s ease-in-out infinite; }
+.globe-route-dock { position: absolute; z-index: 6; bottom: 7%; left: 50%; display: flex; gap: 8px; transform: translateX(-50%); padding: 7px; border: 1px solid var(--surf-border); border-radius: 20px; background: rgba(255,255,255,.24); -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%); box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 18px 40px var(--surf-shadow-far); }
+.globe-route-dock button { display: grid; grid-template-columns: 16px auto; align-items: center; justify-content: center; gap: 5px; width: 48px; height: 34px; border: 1px solid transparent; border-radius: 13px; background: rgba(255,255,255,.26); color: var(--muted); cursor: pointer; transition: all .18s ease; }
+.globe-route-dock button span { font-size: 10px; }
+.globe-route-dock button:hover { color: var(--ink); background: rgba(255,255,255,.68); transform: translateY(-3px); border-color: var(--surf-border-strong); }
+.globe-crosshair { position: absolute; z-index: 1; left: 50%; top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 26px + min(430px, 36vw, 31vh)); background: rgba(var(--ink-raw), .1); pointer-events: none; }
+.globe-crosshair-x { width: min(1000px, 90vw); height: 1px; transform: translate(-50%, -50%); }
+.globe-crosshair-y { width: 1px; height: min(700px, 74vh); transform: translate(-50%, -50%); }
+@media (max-width: 900px) {
+  .globe-frame { width: min(650px, 92vw); top: 50%; }
+  .globe-wordmark { top: 10%; }
+  .globe-status-rail { right: 18px; }
+}
+@media (max-width: 560px) {
+  .globe-wordmark .hero-title { font-size: 56px; }
+  .globe-frame { width: 112vw; top: 49%; }
+  .globe-status-rail { right: 12px; gap: 8px; padding: 7px; }
+  .globe-status { width: 38px; height: 38px; border-radius: 13px; }
+  .globe-route-dock { bottom: 5%; }
+}
+
+/* ============================================================
+   CCUS 式总览交互层
+   左侧是主题轨道，右侧信息只在靠近主题时抬起；
+   底部胶囊负责切换地球互动与客户端节点抽屉。
+   ============================================================ */
+/*
+ * ══ 总览页地板与其它页统一（用户要求）══════════════════════════════
+ * 这里原本又写了两套渐变（stage 一套 + backdrop 一套）叠加在全局
+ * .aurora-bg 之上，导致：
+ *   · 总览页底色与其它页明显不同（「地板不一致」）；
+ *   · 多层半透明彩色渐变互相叠加，与顶栏玻璃面板**串色**
+ *     （顶栏是 backdrop-filter 半透明，底下颜色一变它跟着变）。
+ * 现在全部去掉，只让全局 .aurora-bg 提供地板 —— 与其它页完全一致。
+ * 深色主题同样交给全局变量，不再硬编码 #000。
+ */
+.dash-globe-page .globe-stage { min-height: calc(100vh - 74px); background: transparent; }
+.dash-globe-page .globe-backdrop { background: none; }
+.dash-globe-page.globe-dark .globe-stage { background: transparent; }
+.dash-globe-page.globe-dark { background: transparent; }
+.dash-globe-page.globe-dark .globe-backdrop { background: none; }
+.dash-globe-page .globe-wordmark { top: 4vh; z-index: 4; }
+.dash-globe-page .globe-wordmark .hero-title {
+  font-size: clamp(62px, 11vw, 156px);
+  letter-spacing: .16em;
+  text-shadow: 0 14px 38px rgba(var(--ink-raw), .08);
+}
+.dash-globe-page .globe-frame {
+  width: min(860px, 72vw, 62vh);
+  /*
+   * 顶部位置由「大字底部 + 固定间隙」**推导**，不写死百分比。
+   *
+   * ══ 为什么必须推导（用户报「和顶部状态栏串色」）══════════════════
+   * 大字字号是 clamp(58px, 10vw, 142px)、行高 1.1，其底部随视口变化；
+   * 而地球原来写死 top:51%。实测四种分辨率下大字底部(192~256px) 都
+   * **压在地球顶部(34~240px) 之上** —— 深色粒子穿过黑色大字，视觉上
+   * 就是「串色」。改用 calc 后，全部分辨率间隙恒为 26px（已按
+   * 1440x720 / 2560x1440 等极端比例验算）。
+   */
+  top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 26px + min(430px, 36vw, 31vh));
+  z-index: 2;
+  transform: translate(-50%, -50%) scale(.9);
+  transition: transform .7s cubic-bezier(.2,.8,.2,1), opacity .5s ease, filter .5s ease;
+}
+/*
+ * 总览页装饰环：与球体半径（46%）对齐 —— 见上方 ::before 的说明。
+ * 旧值 inset -1% / -3% 对应半径 51% / 53%，比球大 5~7%，
+ * 放大到 scale(1) 后就是肉眼可见的「球与背景错位」。
+ * 现在：实线环贴球面（46%），虚线环外扩 2% 做层次。
+ */
+.dash-globe-page .globe-frame::before {
+  inset: 4%;
+  border-color: rgba(82, 185, 159, .22);
+  box-shadow: 0 0 100px rgba(41, 157, 130, .13);
+}
+.dash-globe-page .globe-frame::after { inset: 2%; opacity: .2; border-style: solid; }
+/*
+ * 展开客户端时：地球**收缩并向左让位**（用户要求）。
+ * 旧值 scale(1.02) 是放大，方向反了 —— 展开列表时主视觉应该退让，
+ * 不是压过来。同时左移 6vw 给右侧客户端留出空间，并轻微降饱和
+ * 让视觉重心落到客户端面板上。
+ */
+/*
+ * 展开态：球体**放大**（用户明确要求，之前写成 scale(.72) 缩小是错的）。
+ * 基准态是 scale(.9)，展开放大到 1.0 —— 相对基准放大约 11%，
+ * 克制但明显，不会顶到顶栏或溢出视口。
+ */
+.dash-globe-page .globe-stage.is-expanded .globe-frame {
+  transform: translate(-50%, -50%) scale(1);
+  filter: saturate(1.04) brightness(1.02);
+  opacity: 1;
+}
+.dash-globe-page .globe-status-rail {
+  left: clamp(18px, 4vw, 70px);
+  right: auto;
+  top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 26px + min(430px, 36vw, 31vh));
+  gap: 9px;
+  padding: 9px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, .2);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 24px 64px rgba(20, 70, 62, .16);
+}
+.globe-dark .globe-status-rail { background: rgba(12, 37, 31, .42); box-shadow: inset 0 1px 0 rgba(255,255,255,.17), 0 24px 64px rgba(0,0,0,.38); }
+.dash-globe-page .globe-status {
+  width: 48px;
+  height: 48px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .26);
+  color: var(--muted);
+}
+.dash-globe-page .globe-status:hover { transform: translateX(5px) scale(1.04); background: rgba(255,255,255,.62); }
+.globe-dark .globe-status:hover { background: rgba(81, 159, 134, .2); }
+.dash-globe-page .globe-status.active { color: var(--signal); background: rgba(255,255,255,.7); }
+.globe-dark .globe-status.active { background: rgba(62, 188, 151, .18); }
+.dash-globe-page .globe-status-label { bottom: 5px; font-size: 8px; }
+.globe-info-panel {
+  position: absolute;
+  z-index: 7;
+  top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 26px + min(430px, 36vw, 31vh));
+  right: clamp(20px, 6vw, 100px);
+  display: grid;
+  gap: 7px;
+  width: 190px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--surf-border);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .27);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 24px 50px var(--surf-shadow-far);
+  color: var(--ink);
+  transform: translate3d(14px, -50%, 0);
+  opacity: .64;
+  transition: transform .35s cubic-bezier(.2,.8,.2,1), opacity .25s ease, border-color .25s ease;
+  pointer-events: auto;
+}
+.globe-info-panel.is-hovered { transform: translate3d(0, -50%, 0); opacity: 1; border-color: var(--surf-border-strong); }
+.globe-dark .globe-info-panel { background: rgba(13, 34, 29, .48); }
+.globe-info-kicker { display: flex; align-items: center; gap: 6px; font: 700 9px var(--font-mono); letter-spacing: .12em; color: var(--faint); }
+.globe-info-live { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+.globe-info-panel strong { font-size: 20px; letter-spacing: -.02em; }
+.globe-info-note { font-size: 11px; color: var(--muted); }
+.globe-info-metric { display: flex; align-items: baseline; gap: 6px; padding-top: 9px; margin-top: 3px; border-top: 1px solid var(--hairline); }
+.globe-info-metric b { font: 800 23px var(--font-mono); color: var(--signal); }
+.globe-info-metric span { font-size: 10px; color: var(--faint); }
+.globe-info-link, .client-add { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--surf-border); border-radius: 11px; padding: 7px 9px; background: rgba(255,255,255,.22); color: var(--ink); font-size: 10px; cursor: pointer; transition: transform .18s ease, background .18s ease, border-color .18s ease; }
+.globe-info-link:hover, .client-add:hover { transform: translateY(-2px); background: var(--surf-hover); border-color: var(--surf-border-strong); }
+/*
+ * 客户端停靠区：收起时是底部居中的胶囊按钮；展开时整体移到右侧，
+ * 与「地球左移」形成左右分工（用户要求：收缩客户端向左自转）。
+ */
+/*
+ * ══ 开关（用户指定图1样式）══════════════════════════════════════════
+ * 形态：玻璃胶囊轨道 + 绿色圆钮（内嵌地球图标）+ 文字。
+ * 圆钮**真的左右滑动**（transform 位移），文字随之切换。
+ *   关 → 圆钮贴左，文字 Clients 偏右
+ *   开 → 圆钮滑到右，文字 Close 偏左
+ * 轨道宽 172、高 52、内边距 6、圆钮 40 → 行程 172-6-40-6 = 120px。
+ */
+.client-dock {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  bottom: clamp(20px, 4.5vh, 46px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+}
+.glass-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 172px;
+  height: 52px;
+  padding: 0;
+  border: 1.5px solid rgba(20, 26, 24, .82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .52);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: 0 14px 34px rgba(20, 70, 62, .18);
+  color: #14201c;
+  cursor: pointer;
+  transition: background .28s ease, border-color .28s ease;
+}
+.glass-switch:hover { background: rgba(255, 255, 255, .72); }
+.globe-dark .glass-switch {
+  border-color: rgba(210, 245, 235, .5);
+  background: rgba(12, 40, 34, .62);
+  color: #eaf6f2;
+}
+.globe-dark .glass-switch:hover { background: rgba(24, 66, 55, .72); }
+
+/* 圆钮：绿色实心 + 地球图标，白描边让它在玻璃上「浮」起来 */
+.glass-switch-knob {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #14b866;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 4px 12px rgba(14, 155, 102, .38);
+  transition: transform .42s cubic-bezier(.34, 1.4, .58, 1), background .28s ease;
+}
+/* 开：滑到右侧（行程 120px） */
+.glass-switch.on .glass-switch-knob { transform: translateX(120px); }
+.glass-switch:active .glass-switch-knob { transform: translateX(0) scale(.94); }
+.glass-switch.on:active .glass-switch-knob { transform: translateX(120px) scale(.94); }
+
+/* 文字与圆钮反向让位，始终居中于剩余空间 */
+.glass-switch-label {
+  font: 800 15px var(--font-ui);
+  letter-spacing: .01em;
+  padding-left: 54px;
+  padding-right: 14px;
+  transition: padding .42s cubic-bezier(.34, 1.4, .58, 1);
+}
+.glass-switch.on .glass-switch-label { padding-left: 14px; padding-right: 54px; }
+
+/* 抽屉相关样式已全部移除（用户要求删除该功能） */
+
+@media (max-width: 900px) {
+  .dash-globe-page .globe-frame { width: min(84vw, 62vh); top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 20px + min(430px, 36vw, 31vh)); }
+  .globe-info-panel { right: 20px; top: 16%; transform: translateX(8px); }
+  .globe-info-panel.is-hovered { transform: translateX(0); }
+}
+@media (max-width: 560px) {
+  .dash-globe-page .globe-wordmark { top: 8%; }
+  .dash-globe-page .globe-wordmark .hero-title { font-size: 58px; }
+  .dash-globe-page .globe-frame { width: 112vw; top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 18px + min(430px, 36vw, 31vh)); }
+  .dash-globe-page .globe-status-rail { left: 10px; top: 51%; gap: 6px; padding: 6px; }
+  .dash-globe-page .globe-status { width: 39px; height: 39px; border-radius: 14px; }
+  .globe-info-panel { right: 10px; top: 19%; width: 156px; padding: 13px; }
+  .globe-info-panel strong { font-size: 16px; }
+  .dash-globe-page .globe-frame { transform: translate(-50%, -50%) scale(.84); }
+  .dash-globe-page .globe-stage.is-expanded .globe-frame { transform: translate(-50%, -50%) scale(.94); }
+}
+
+/* 触屏 / 减少动效：不显示水珠，避免视觉错乱 */
+@media (hover: none), (prefers-reduced-motion: reduce) {
+  .cursor-blob {
+    display: none;
+  }
+}
+
+/* ============================================================
+   自适应兜底规则
+   ------------------------------------------------------------
+   目标：任何窗口尺寸 / 系统缩放下都不出现「主题被截断」。
+   分三层：
+     1. 全局防溢出：长单词、长路径强制断行，不撑破容器
+     2. 视口单位安全：极矮窗口收紧纵向间距
+     3. 超小窗口：主布局从「侧栏 + 内容」改为纵向堆叠
+   ============================================================ */
+
+/* ---- 1. 全局防溢出 ---- */
+/*
+ * 长路径 / 长 URL / 无空格长串是溢出的头号来源。
+ * overflow-wrap:anywhere 允许在任意字符处断行 —— 只影响确实放不下的行，
+ * 正常文本的换行行为不变。
+ */
+.mono,
+.inj-point-path,
+.glass-row-meta,
+.rail-path,
+.rail-state-text,
+.topbar .sub,
+.kicker {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 图片/画布等替换元素不超出容器 */
+img,
+canvas,
+svg,
+video {
+  max-width: 100%;
+}
+
+/* 表格/代码块可横向滚动，而不是把父容器撑宽 */
+pre,
+.rule-box {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* ---- 2. 视口单位安全：矮窗口（如 1366×768 或缩放后）---- */
+@media (max-height: 620px) {
+  .hero-stage {
+    min-height: auto;
+    padding-top: 20px;
+    padding-bottom: 16px;
+  }
+  .hero-copy {
+    gap: 10px;
+  }
+  .dash-actions {
+    margin-top: 14px;
+  }
+  .glass-footer {
+    padding: 16px 0 20px;
+  }
+}
+
+/* ---- 3. 超小窗口：侧栏改为顶部横向条 ---- */
+@media (max-width: 720px) {
+  .shell-body {
+    flex-direction: column;
+  }
+  .target-rail {
+    width: 100%;
+    max-height: 30vh;
+    border-right: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .dash-cards {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .topbar {
+    align-items: flex-start;
+  }
+}
+
+/* 横向可滚动的容器统一加细滚动条，避免占位导致内容被挤 */
+.tgt-scroll,
+.page-body,
+.topnav-items {
+  scrollbar-width: thin;
+}
+
+/* ---------- 暗色主题下的玻璃调校 ----------
+   亮色主题的玻璃高光靠「白」，暗色下白高光会糊成一片，
+   改用：描边提亮 + 顶缘冷白线 + 深色底。 */
+html[data-theme='dark'] .cursor-blob {
+  /* 水珠在暗色下要更亮一点的壳，否则看不见边界 */
+  box-shadow:
+    inset 0 0 0 1px rgba(241, 241, 236, 0.3),
+    inset -8px -12px 26px rgba(241, 241, 236, 0.12),
+    inset 10px 14px 30px rgba(0, 0, 0, 0.2),
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+  background: radial-gradient(
+    circle at 34% 28%,
+    rgba(241, 241, 236, 0.1),
+    rgba(241, 241, 236, 0.02) 46%,
+    rgba(241, 241, 236, 0) 68%
+  );
+}
+
+/*
+ * 暗色下的玻璃 —— 现在**全部由 --surf-* / --pane-* 变量接管**，
+ * 这里只保留「亮色里没有对应物」的那几条（主按钮反转、激活项亮底暗字）。
+ *
+ * ⚠️ 这里**不能包含 .glass**。
+ * 曾经写成 `html[data-theme='dark'] .glass, ...` —— 那条选择器带属性选择器，
+ * 优先级高于 `.glass-strong`，于是把弹窗的底色也覆盖成了「透明渐变」，
+ * 弹窗变成空底（只剩边框和阴影），可读性极差、底下的字全透上来。
+ * CDP 实测确认：暗色下 .glass-strong 的 backgroundColor 是 rgba(0,0,0,0)。
+ * 现在 .glass / .glass-strong 两个主题共用 --surf-* / --pane-*，无此问题。
+ */
+
+html[data-theme='dark'] .btn-primary {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04) 60%),
+    #f1f1ec;
+  border-color: rgba(241, 241, 236, 0.7);
+  color: #101013;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 6px 18px rgba(0, 0, 0, 0.5);
+}
+html[data-theme='dark'] .btn-primary:hover {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.06) 60%),
+    #f1f1ec;
+  border-color: #f1f1ec;
+}
+html[data-theme='dark'] .btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .glass-btn-primary {
+  /* 暗色下反转：浅底 + 深字，才能在深色背景上突出 */
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04) 60%),
+    #f1f1ec;
+  border-color: rgba(241, 241, 236, 0.7);
+  color: #101013;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+/*
+ * 顶栏 / 导航项的暗色已由 --pane-* / --surf-* 变量接管，无需重复定义。
+ * 这里只留「激活项」——亮色下是深底浅字，暗色下必须反转成亮底暗字。
+ *
+ * ⚠️ 不能写成 background: var(--paper) + color: var(--panel)：
+ *    暗色主题里 --paper(#0e0e10) 与 --panel(#141417) **都是深色**，
+ *    会变成深底深字、完全看不清（用户反馈「点击的字体是黑色」）。
+ *    所以直接用具体色值，别依赖这对会互换的变量。
+ */
+html[data-theme='dark'] .topnav-item.active {
+  background: #f1f1ec;
+  border-color: #f1f1ec;
+  color: #101013;
+  /* 同浅色主题：不带偏移的投影，避免被父容器 overflow 裁成虚影 */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+html[data-theme='dark'] .topnav-item.active .nav-idx {
+  color: #ff6a2a;
+}
+html[data-theme='dark'] .topnav-item.active svg {
+  opacity: 1;
+}
+
+/* ============================================================
+   Alice-codex 页布局（2026-09-20）
+   ------------------------------------------------------------
+   MASK 面板移除「独占终止保护」两条长说明后，左栏明显变矮，
+   而右栏是「导入导出 + 运行日志」，日志区原本 max-height:420px 封顶。
+   两栏在 alignItems:start 下高度差过大，页面下半截会空掉。
+
+   处理：窄窗口下退化为单列，宽窗口下右栏日志撑满可用高度。
+   ============================================================ */
+.runtime-body > .col {
+  min-width: 0;
+}
+.runtime-body .runtime-log {
+  max-height: min(58vh, 560px);
+}
+
+/* ------------------------------------------------------------
+   体检行：标签 |（撑开）| 右侧动作组 | 状态勾
+   ------------------------------------------------------------
+   旧版每行自己写 inline style（有的 flex:1 加勾、有的 row gap 混排），
+   勾的水平位置随前方内容宽度漂移，一列看下来是锯齿。现在统一成
+   「.run-row-main 吃满剩余宽度 + .run-row-acts 定宽贴右」，
+   所有行的勾落在同一列上。
+
+   为什么 .run-row-main 用 min-width:0：标签是中文可换行，但
+   provider 值可能是长路径，不给 min-width:0 会把整行撑过容器。
+   ------------------------------------------------------------ */
+.run-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.run-row-label {
+  font-size: 12.5px;
+}
+.run-row-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+/* 提示词行：动作组占满整行宽度（下拉要拉开），不被压缩 */
+.run-row-acts-stretch {
+  width: 100%;
+}
+.run-row-acts-stretch .select {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  padding: 6px 28px 6px 10px;
+}
+/* 提示词行是上下两段（标题+动作），单独放宽行高与对齐 */
+.run-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.run-row-stack .run-row-main {
+  flex: none;
+}
+.run-row-spacer {
+  flex: 1;
+}
+.run-row-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+/* provider 值：等宽小字，过长时省略而不是把按钮挤走 */
+.run-row-note.mono,
+.run-row-main > .mono {
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------
+   包根条：kicker + 路径（可省略） + 打开
+   ------------------------------------------------------------ */
+.run-root {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  min-width: 0;
+}
+.run-root-kicker {
+  flex: none;
+}
+.run-root-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 路径常带盘符与反斜杠，方向无所谓，但保留原样最易读 */
+  direction: ltr;
+}
+
+/* ------------------------------------------------------------
+   操作区：两行分组（运行控制 / 维护工具）
+   ------------------------------------------------------------
+   旧版是 7 个按钮一个 flex-wrap 容器，换行位置随窗口宽度跳，
+   主次动作混排在一条线上（用户反馈「底部按钮太丑」）。
+   现在固定两行：
+     ① 运行控制 —— 启动 CLI / 启动桌面端 / 停止（primary 与停止并列）
+     ② 维护工具 —— 换随机名重启 / 强制清理 / 刷新状态 / 重新自检（小号）
+   两行之间加发丝分隔，主次一眼区分。
+   ------------------------------------------------------------ */
+.run-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.run-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.run-actions-row-tools {
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+/* 维护行的按钮统一小号观感：默认 .btn 的 7px 纵向内边距在这里显得笨重 */
+.run-actions-row-tools .btn {
+  font-weight: 600;
+  color: var(--muted);
+}
+.run-actions-row-tools .btn:hover {
+  color: var(--ink);
+}
+
+/* 窄窗口：两栏改为纵向堆叠，避免每栏都被挤成窄条 */
+@media (max-width: 1100px) {
+  .runtime-body {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 更窄：体检行的动作组改成整行换行，勾仍贴右 */
+@media (max-width: 760px) {
+  .run-row-main {
+    flex-wrap: wrap;
+  }
+  .run-row-acts {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   select 弹出列表（option popup）暗色反色兑底
+   ------------------------------------------------------------
+   实测（2026-09-20）：暗色主题下 select 弹窗白底 + 亮字，
+   字被白底吃掉。CDP 确认 optionColor 是亮字、optionBg 是透明
+   —— popup 的白底来自 WebView2 原生绘制，不吃 CSS 变量。
+   color-scheme: light dark 加在元素上能让 Chromium 按
+   prefers-color-scheme 选 popup 深浅，但 WebView2 里用户级
+   prefers 未必跟随应用内主题切换（应用内主题是 data-theme 手动切）。
+
+   所以这里双保险：
+   1) .select 上显式 color-scheme: light dark（跟随系统）；
+   2) option 显式配色 —— 背景用面板色、文字用油墨色，
+      原生 popup 至少尊重 option 的 color（background 在部分
+      Chromium 版本会被原生渲染忽略，但 color 一定生效，
+      暗色下文字变亮就不再被白底吃掉；配合 1) popup 也会转深底）。
+   ============================================================ */
+.select option,
+.input option {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* 暗色下 option 强制深底亮字（原生 popup 忽略 background 时，
+   至少 color 生效，字不会再隐形） */
+html[data-theme='dark'] .select option,
+html[data-theme='dark'] .input option {
+  background-color: #141417;
+  color: #f1f1ec;
+}
+
+/* ============================================================
+   Agent 会话：过程展开 + 已写入留档预览（2026-09-22）
+   ------------------------------------------------------------
+   用户要求「思考过程显示进度、可展开」。默认收起避免刷屏，
+   展开后按序号列出思考 / 命令 / 工具调用。
+   ============================================================ */
+.agent-steps {
+  margin-top: 6px;
+}
+.agent-steps-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.agent-steps-toggle:hover {
+  color: var(--ink);
+}
+.agent-steps-list {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.agent-steps-list li {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+/* 拟写入内容预览：等宽 + 限高，长文件不把面板撑爆 */
+.agent-proposal-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: rgba(var(--hover-raw), calc(var(--hover-alpha) * 0.6));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+/* ---------- Agent 会话：图片上传 + 复制按钮（2026-09-22） ---------- */
+.agent-img-chip {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  flex: none;
+}
+.agent-img-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.agent-img-chip-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.agent-img-chip-x:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+/* 助手消息右上角的复制按钮：平时淡，hover 才显 */
+.agent-copy {
+  border: none;
+  background: transparent;
+  padding: 0 0 0 8px;
+  color: var(--faint);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.agent-copy:hover {
+  color: var(--ink);
+}
+
+
+
+/* ============================================================
+   开场动画（Splash）
+   ------------------------------------------------------------
+   作用：盖住地球点阵的生成时间（首进总览页要算 1.6 万格点的陆地
+   面内测试，点阵边算边长，直接露出会看到「地球不流畅」）。
+   进度条接的是**真实生成进度**，不是定时器假动画 —— 见 intro.tsx。
+   ============================================================ */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 300;              /* 高于 toast(200) / 抽屉(120) / 模态(100)：开场必须盖住一切 */
+  display: grid;
+  place-items: center;
+  /*
+   * 底色用 --paper：这一层必须**不透明**，否则盖不住下面的主界面。
+   * 炫彩折射由内部的 .aurora-bg（z-index:0）叠在底色之上提供 ——
+   * 它和主界面用的是同一个组件、同一套变量，所以淡出时视觉完全连续。
+   */
+  background: var(--paper);
+  overflow: hidden;
+  /*
+   * ══ 地板**没有任何 opacity 动画**（真机踩坑两次，别再给它加淡入）══════
+   * 这一层一旦处于半透明，下面的总览界面（地球点云 / ALICE 大字 / 左侧
+   * 轨道 / 右侧面板）就会透上来糊成一片。两次报障都是这个病根：
+   *   · 「进入一瞬间会露出地球形状」→ 退场整层 crossfade；
+   *   · 「开场一瞬间还是能看到总览界面」→ **入场**写了 `intro-in` 淡入，
+   *     那 320ms 里整层从 opacity 0 爬到 1，主界面照样透出来。
+   * 所以：地板的透明度**只在退场第二段**才动（见 .is-leaving），
+   * 入场阶段恒定 opacity:1。「不要突然出现」的观感改由**内容**承担 ——
+   * 大字逐字升起、正文/进度条依次淡入（见 .intro-char / .intro-line），
+   * 地板本身直接满不透明地出现，这样既没有突兀感也没有透底。
+   */
+}
+/*
+ * 退场：**先内容、后地板**（用户报「进入一瞬间会露出地球形状」）。
+ *
+ * ══ 为什么不能整层 crossfade（真机复现）══════════════════════════════
+ * 原先给 .intro 整层做 opacity 1→0。把过程冻在 50% 截图后看得很清楚：
+ * 这一层半透明时下面的主界面**整个透出来** —— 地球点云、ALICE 大字、
+ * 左侧轨道、右侧面板全叠在「欢迎使用ALICE-Assistant」上，糊成一片。
+ *
+ * 现在拆成两段，中间不重叠：
+ *   ① .intro-inner 0→240ms 淡出（内容消失），此期间 .intro 地板**保持不透明**
+ *      → 下层永远被盖住，不可能露出来；
+ *   ② .intro 地板在 240ms 之后才开始 240ms 淡出
+ *      → 此时内容已空，露出的是干净的主界面。
+ * 两段都是纯 CSS animation（不依赖 JS 时序），卸载由 JS 在 480ms 后执行。
+ */
+.intro.is-leaving { animation: intro-floor-out .24s ease-in .24s both; pointer-events: none; }
+.intro.is-leaving .intro-inner { animation: intro-content-out .24s cubic-bezier(.4,0,.2,1) both; }
+@keyframes intro-content-out {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 0; transform: translate3d(0, -10px, 0); }
+}
+@keyframes intro-floor-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+.intro-inner { position: relative; z-index: 1; display: grid; justify-items: center; gap: 14px; padding: 0 24px; text-align: center; }
+/*
+ * 大字：逐字升起 + 模糊散焦（stagger 由 JS 写 animation-delay）。
+ * 用 filter: blur 而不是 opacity 单独淡入 —— 模糊散焦更像「聚焦」，
+ * 与软件「运行时链路聚焦」的语义一致。
+ */
+.intro-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0;
+  font: 800 clamp(34px, 5.6vw, 76px) / 1.12 var(--font-ui);
+  letter-spacing: .01em;
+  color: var(--ink);
+}
+.intro-char {
+  display: inline-block;
+  white-space: pre;
+  animation: intro-char .78s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes intro-char {
+  from { opacity: 0; transform: translate3d(0, 26px, 0) scale(.94); filter: blur(10px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+.intro-sub, .intro-note {
+  margin: 0;
+  font: 400 clamp(12px, 1.25vw, 15px) / 1.7 var(--font-ui);
+  color: var(--muted);
+  animation: intro-line .7s cubic-bezier(.2,.8,.2,1) both;
+}
+.intro-note { color: var(--faint); }
+@keyframes intro-line {
+  from { opacity: 0; transform: translate3d(0, 12px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.intro-link {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--surf-border-strong);
+  padding-bottom: 1px;
+  transition: color .2s ease, border-color .2s ease;
+  word-break: break-all;
+}
+.intro-link:hover { color: var(--signal); border-color: rgba(var(--signal-raw), .5); }
+.intro-bar-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  width: min(460px, 74vw);
+  margin-top: 12px;
+  animation: intro-line .7s cubic-bezier(.2,.8,.2,1) both;
+}
+/*
+ * 液态玻璃进度条：玻璃轨道 + 流动高光填充 + 掠过式镜面反光。
+ *   · 轨道：半透明白 + backdrop blur，内阴影制造「凹槽」；
+ *   · 填充：绿色系渐变（与软件 signal/ok 语言一致），背景做横向流动；
+ *   · ::after：一道窄的白色高光周期掠过，就是「液态」的来源。
+ */
+.intro-bar {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  border: 1px solid var(--surf-border-strong);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .42);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  backdrop-filter: blur(16px) saturate(170%);
+  box-shadow: inset 0 2px 5px rgba(20, 24, 34, .12), inset 0 -1px 0 var(--surf-edge-light), 0 10px 26px rgba(20, 70, 62, .12);
+  overflow: hidden;
+}
+.intro-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(100deg, #2fbf95 0%, #4fd8ad 32%, #7ff0c9 50%, #4fd8ad 68%, #2fbf95 100%);
+  background-size: 220% 100%;
+  box-shadow: 0 0 14px rgba(47, 191, 149, .5), inset 0 1px 0 rgba(255, 255, 255, .55);
+  animation: intro-flow 2.4s linear infinite;
+}
+@keyframes intro-flow { from { background-position: 0% 50%; } to { background-position: 220% 50%; } }
+.intro-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .72) 50%, transparent 80%);
+  background-size: 42% 100%;
+  background-repeat: no-repeat;
+  animation: intro-sheen 1.9s ease-in-out infinite;
+}
+@keyframes intro-sheen {
+  0%   { background-position: -60% 0; }
+  100% { background-position: 160% 0; }
+}
+.intro-bar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  /*
+   * 固定行高：走满时这一行从纯文字换成 Start 按钮（按钮更高），
+   * 若不定高，整层内容会**向上跳一下**。26px 容纳两者中较高的那个。
+   */
+  min-height: 26px;
+  font: 600 10px var(--font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+/* 等宽 + 固定宽度：百分比从 9% 到 100% 位数变化时数字不左右跳 */
+.intro-bar-pct { min-width: 4.6em; text-align: left; font-variant-numeric: tabular-nums; }
+.intro-bar-state { color: var(--signal); }
+/*
+ * Start 按钮（用户要求：点它才进入，不自动进入）。
+ *
+ * 与百分比同排、右对齐 —— 进度条走满时**原地**从「正在构建地球」变成
+ * 这个按钮，位置不跳，视线不用重新找。
+ * 液态玻璃语言：玻璃底 + 描边 + 顶缘高光，与顶栏/开关同一套。
+ * 动效：淡入 + 上浮（.intro-start-in），之后常驻一层极轻的呼吸辉光
+ * （box-shadow 动画）提示「可点击」，不抢眼但不会漏看。
+ */
+.intro-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px 5px 14px;
+  border: 1px solid rgba(var(--signal-raw), .45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .58);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 6px 16px rgba(var(--signal-raw), .16);
+  color: var(--signal);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  animation: intro-start-in .46s cubic-bezier(.2,.8,.2,1) both,
+             intro-start-pulse 2.4s ease-in-out .46s infinite;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.intro-start:hover { background: rgba(255, 255, 255, .86); transform: translateY(-1px); }
+.intro-start:active { transform: translateY(0) scale(.98); }
+.intro-start:focus-visible { outline: 2px solid rgba(var(--signal-raw), .6); outline-offset: 2px; }
+@keyframes intro-start-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes intro-start-pulse {
+  0%, 100% { box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 6px 16px rgba(var(--signal-raw), .16); }
+  50%      { box-shadow: inset 0 1px 0 var(--surf-edge-light), 0 6px 22px rgba(var(--signal-raw), .38); }
+}
+/* 深色主题：轨道改用暗玻璃，填充保持同一绿色语义 */
+html[data-theme='dark'] .intro { background: #0b1211; }
+html[data-theme='dark'] .intro-bar { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .16); }
+html[data-theme='dark'] .intro-title { color: #f1f1ec; }
+html[data-theme='dark'] .intro-sub { color: rgba(241, 241, 236, .62); }
+html[data-theme='dark'] .intro-note { color: rgba(241, 241, 236, .4); }
+html[data-theme='dark'] .intro-link { color: #f1f1ec; }
+/* 尊重系统「减少动态效果」：只保留淡入淡出，去掉位移/模糊/流动 */
+@media (prefers-reduced-motion: reduce) {
+  .intro-char, .intro-sub, .intro-note, .intro-bar-wrap { animation: none; opacity: 1; }
+  .intro-fill, .intro-fill::after { animation: none; }
+  /* Start 按钮保留「出现」但去掉呼吸，避免持续的动效干扰 */
+  .intro-start { animation: intro-start-in .01ms both; }
+}
+
+/* ============================================================
+   新手教程指引（Product Tour）
+   ------------------------------------------------------------
+   结构：components/tour.tsx 渲染，
+     .tour-layer            全屏层（fixed，捕获全部点击）
+       .tour-hole           挖孔：目标元素的矩形，用 box-shadow 涂暗周围
+         .tour-hole-ring    呼吸光环：把视线钉在目标上（「亮部特写」）
+       .tour-veil           无锚点时的纯压暗层
+       .tour-arrow          从气泡指向高亮块的三角
+       .tour-tip            讲解气泡（玻璃）
+
+   ══ 为什么用 box-shadow 挖孔，而不是给目标元素加 z-index ═══════════
+   见 tour.tsx 文件头。一句话：加 z-index 会破坏页面原有的层叠
+   （顶栏/侧栏/浮层各自有定位，父子元素的 z-index 谁压谁根本不由这
+   一处决定），而挖孔**完全不碰被测页面**。
+
+   ══ 涂暗值为什么是 0.52 ═══════════════════════════════════════
+   实测 0.36 太浅：本页背景本来就是浅纸色 + 彩色光晕，压得不够时
+   高亮块和周围几乎一个亮度，「亮部特写」就没了对比。
+   0.52 能压出明确的聚焦感，同时被高亮的内容仍然读得清。
+   ------------------------------------------------------------ */
+
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 300; /* 高于弹窗(100)与 Toast(200)，教程永远在最上层 */
+  pointer-events: auto; /* 挡掉所有误点：教程期间只认气泡上的按钮 */
+}
+
+/*
+ * 挖孔：一个定位在目标矩形上的空 div，
+ * 用一圈超大 box-shadow 把「孔以外」全部涂暗。
+ * 100vmax 保证无论屏幕多大都能涂满（不用算坐标）。
+ */
+.tour-hole {
+  position: absolute;
+  border-radius: var(--r-md);
+  /*
+   * 三层阴影：
+   *   ① 0 0 0 100vmax —— 挖孔本体，把孔以外全部涂暗
+   *   ② 0 0 0 1px      —— 孔的描边（signal 橙极淡）
+   *   ③ 0 0 26px 4px   —— 外发光，让「这一块是亮的」更明确（亮部特写）
+   */
+  box-shadow:
+    0 0 0 100vmax rgba(10, 12, 16, 0.52),
+    0 0 0 1px rgba(var(--signal-raw), 0.4),
+    0 0 26px 4px rgba(var(--signal-raw), 0.22);
+}
+
+/* 呼吸光环：贴在孔的边框上，持续轻微脉动，把视线钉住 */
+.tour-hole-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: calc(var(--r-md) + 5px);
+  border: 2px solid rgba(var(--signal-raw), 0.85);
+  animation: tour-ring-pulse 1.9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tour-ring-pulse {
+  0%, 100% {
+    opacity: 0.9;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--signal-raw), 0.34);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.028);
+    box-shadow: 0 0 0 8px rgba(var(--signal-raw), 0);
+  }
+}
+
+/* 无锚点时的纯压暗层（居中卡片模式） */
+.tour-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.52);
+}
+
+/*
+ * 指示箭头：指向高亮块的实心三角（border 画法，尺寸随字号缩放）。
+ *
+ * ══ 类名 = 气泡在目标的哪一侧；三角朝**相反**方向指向目标 ════════════
+ * 四种组合与 border 朝向的对应（这里踩过坑：左右一度写反，箭头指着
+ * 目标的反方向，截图才发现）：
+ *   border-bottom 实色 → 三角朝上
+ *   border-top    实色 → 三角朝下
+ *   border-right  实色 → 三角朝左
+ *   border-left   实色 → 三角朝右
+ * 即「气泡在右侧（tour-arrow-right）」要用朝左的三角 = border-right。
+ *
+ * ══ 统一约定：transform 把**三角的尖端**摆到元素原点 (left, top) ══════
+ * 于是 tour.tsx 只需把「尖端该落在孔边缘的哪个点」写进 left/top，不用
+ * 再关心三角自身的宽高。各朝向的尖端在 border box 里的位置：
+ *   bottom（朝上，盒 18×10）尖端在 (50%,   0)
+ *   top   （朝下，盒 18×10）尖端在 (50%, 100%)
+ *   right （朝左，盒 10×18）尖端在 (  0, 50%)
+ *   left  （朝右，盒 10×18）尖端在 (100%, 50%)
+ * 下面每个类的 translate 就是把这个尖端对到原点。
+ */
+.tour-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(10, 12, 16, 0.28));
+}
+.tour-arrow-bottom {
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 10px solid var(--pane-bg-strong);
+  transform: translate(-50%, 0);
+}
+.tour-arrow-top {
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 10px solid var(--pane-bg-strong);
+  transform: translate(-50%, -100%);
+}
+.tour-arrow-right {
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-right: 10px solid var(--pane-bg-strong);
+  transform: translate(0, -50%);
+}
+.tour-arrow-left {
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 10px solid var(--pane-bg-strong);
+  transform: translate(-100%, -50%);
+}
+
+/*
+ * 讲解气泡：玻璃面板。位置由 JS 写死 left/top（见 tour.tsx placeTip），
+ * 所以这里只给尺寸与内边距，不写 inset/margin。
+ */
+.tour-tip {
+  position: absolute;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.tour-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/* 步骤序号：等宽 + 强调色，与全站 kicker 语言一致 */
+.tour-tip-idx {
+  flex: none;
+  font: 700 10px var(--font-mono);
+  letter-spacing: .06em;
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+}
+.tour-tip-idx i {
+  font-style: normal;
+  color: var(--faint);
+  padding: 0 1px;
+}
+.tour-tip-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 800;
+  font-size: 13.5px;
+  letter-spacing: .01em;
+}
+.tour-tip-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.72;
+  color: var(--muted);
+}
+
+/* 进度点：当前步高亮，已过的变暗，未到的更淡 */
+.tour-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.tour-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(var(--ink-raw), 0.16);
+  transition: width .2s ease, background .2s ease;
+}
+.tour-dot.done {
+  background: rgba(var(--ink-raw), 0.34);
+}
+.tour-dot.on {
+  width: 16px;
+  background: var(--signal);
+}
+
+.tour-tip-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+}
+.tour-skip {
+  color: var(--faint);
+}
+.tour-skip:hover {
+  color: var(--muted);
+}
+
+/*
+ * 页头「使用教程」按钮。
+ * 与普通 .btn 区分：左缘一道信号色，说明它是「教学模式」而不是操作按钮。
+ * 步数角标让用户点之前就知道要花多久（3 步和 12 步的心理预期不一样）。
+ */
+.tutorial-btn {
+  position: relative;
+  border-color: rgba(var(--signal-raw), 0.34);
+  background: rgba(var(--signal-raw), 0.06);
+  color: var(--signal);
+  font-weight: 700;
+}
+.tutorial-btn:hover:not(:disabled) {
+  background: rgba(var(--signal-raw), 0.12);
+  border-color: rgba(var(--signal-raw), 0.5);
+}
+.tutorial-btn:disabled,
+.tutorial-btn.on {
+  opacity: 0.62;
+}
+.tutorial-btn-n {
+  margin-left: 2px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: rgba(var(--signal-raw), 0.16);
+  font: 700 9.5px var(--font-mono);
+  letter-spacing: .04em;
+}
+
+/* 暗色：高亮块的外发光要更亮才看得见，涂暗可以略轻 */
+html[data-theme='dark'] .tour-hole {
+  box-shadow:
+    0 0 0 100vmax rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(var(--signal-raw), 0.5),
+    0 0 30px 6px rgba(var(--signal-raw), 0.28);
+}
+html[data-theme='dark'] .tour-veil {
+  background: rgba(0, 0, 0, 0.62);
+}
+html[data-theme='dark'] .tour-arrow-bottom { border-bottom-color: var(--pane-bg-strong); }
+html[data-theme='dark'] .tour-arrow-top { border-top-color: var(--pane-bg-strong); }
+html[data-theme='dark'] .tour-arrow-right { border-left-color: var(--pane-bg-strong); }
+html[data-theme='dark'] .tour-arrow-left { border-right-color: var(--pane-bg-strong); }
+
+/* 减少动态效果：去掉呼吸光环的脉动，只留静态描边 */
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole-ring { animation: none; }
+  .tour-dot { transition: none; }
+}

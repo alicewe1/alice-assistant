@@ -1,0 +1,38 @@
+[package]
+name = "alice-ui"
+version = "5.0.0"
+description = "Alice 破甲工作台 - Bench-01"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+ureq = { version = "2", features = ["json"] }
+# 技能包导入：解压用户自备的 .zip。纯 Rust 实现，不依赖外部解压程序（不受 PATH 影响）。
+# 只开 deflate（zip 最主流的压缩方式）；默认 features 会拖进 aes/bzip2/zstd/xz 等一堆依赖。
+zip = { version = "4", default-features = false, features = ["deflate"] }
+# 会话图片上传：base64 解码（前端读剪贴板/文件后传过来）
+base64 = "0.22"
+
+[features]
+# 生产构建必须显式开启，否则 tauri 的 build.rs 会 `dev = !custom_protocol` 判定为 dev 模式，
+# 二进制改为加载 devUrl（http://127.0.0.1:5183）而不内嵌 dist —— 直接表现为
+# 「嗯…无法访问此页面 / 127.0.0.1 拒绝连接」。
+# 构建命令：cargo build --release --features custom-protocol
+# 故意不放进 default：tauri dev 依赖 dev 模式，放 default 会把开发流程一起打坏。
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

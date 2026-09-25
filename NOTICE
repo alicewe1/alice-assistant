@@ -1,0 +1,104 @@
+Alice 助手 / Alice Assistant
+Copyright (C) 2026 alicewe1
+https://github.com/alicewe1/alice-assistant
+
+许可 / License
+=======================================================================
+
+本项目采用 GNU 通用公共许可协议第 3 版（或您选择的任何更高版本）许可，
+即 GPL-3.0-or-later。完整条款见 LICENSE 文件。
+
+This project is licensed under the GNU General Public License, version 3
+or (at your option) any later version — GPL-3.0-or-later.
+See the LICENSE file for the full terms.
+
+本程序是自由软件：您可以按照自由软件基金会发布的 GNU 通用公共许可协议
+的条款重新发布和/或修改它。本程序希望它有用，但不提供任何担保，甚至不
+提供适销性或特定用途适用性的默示担保。
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation. This program is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+
+许可范围 / Scope
+=======================================================================
+
+本许可协议适用于 alicewe1 原创的部分：
+This license applies to the parts originally created by alicewe1:
+
+  * 主程序源码与构建产物
+      the application source code and build artifacts
+  * resources/profiles/                 客户端预设与版本清单
+  * resources/_assets/skill/Alice/      原创技能包
+      (entries marked "custom": true in pack.json)
+  * README.md / README.en.md 及仓库内的原创文档
+      the original documentation in this repository
+
+
+第三方组件 / Third-party components
+=======================================================================
+
+本分发包内含第三方组件，各自受其自身许可协议约束，其条款优先于本许可。
+对于第三方组件，alicewe1 既不授予任何权利，也不代表其权利人行事。
+
+The distribution bundles third-party components, each governed by its own
+license. Those licenses take precedence over this one. alicewe1 grants no
+rights in third-party components and does not act on behalf of their rights
+holders.
+
+完整的组件清单、版本、许可与署名要求见：
+See THIRD-PARTY-NOTICES.md for the full list of components, their versions,
+licenses, and attribution requirements.
+
+
+再分发限制 / Redistribution restrictions
+=======================================================================
+
+下列组件不得随本作品一并再分发，除非另行取得权利人授权：
+The following components MUST NOT be redistributed with this work unless
+separate authorization is obtained from their rights holders:
+
+  * OpenAI Codex / ChatGPT 桌面端 —— 专有软件，未授予再分发权
+      the OpenAI Codex / ChatGPT desktop app (proprietary)
+  * 未声明许可的第三方提示词与技能包
+      third-party prompt and skill packs that declare no license
+
+详见 THIRD-PARTY-NOTICES.md。
+See THIRD-PARTY-NOTICES.md for details.
+
+
+要点 / Key terms
+=======================================================================
+
+  * 自由使用     —— 以任何目的运行本程序
+  * 自由修改     —— 按需修改本程序
+  * 自由分发     —— 复制并再分发本程序
+  * 商业使用     —— 允许
+  * 相同方式共享 —— 分发衍生作品时必须同样以 GPL 授权，并提供完整对应源码
+  * 无担保       —— 本程序不提供任何形式的担保
+
+本项目是开放源代码（Open Source）项目，GPL-3.0 通过 OSI 认证。
+商业使用是被允许的；约束在于传染性 —— 衍生作品必须同样开源。
+
+This project IS open source: GPL-3.0 is OSI-approved. Commercial use is
+permitted. The obligation is copyleft: derivative works distributed to
+others must be licensed under the GPL as well, with complete corresponding
+source code.
+
+
+署名方式 / Attribution
+=======================================================================
+
+  作品名称 Work:  Alice 助手 / Alice Assistant
+  作者 Author:    alicewe1
+  来源 Source:    https://github.com/alicewe1/alice-assistant
+  许可 License:   GNU GPL v3.0 or later (GPL-3.0-or-later)
+
+许可协议主页 / License home:
+  https://www.gnu.org/licenses/gpl-3.0.html
+  中文参考译本 / Unofficial Chinese translation:
+  https://www.gnu.org/licenses/gpl-3.0.zh-cn.html
+  官方英文原文具有法律效力 / the official English text is authoritative

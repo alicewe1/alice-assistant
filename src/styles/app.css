@@ -1,0 +1,6 @@
+/* 布局补丁：BENCH-01 专属微调（主体布局并入 tokens.css） */
+.topbar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}

@@ -1,0 +1,282 @@
+﻿// 阶段一 mock 数据层。结构对齐原版 Alice asar 提取结果。
+import type {
+  CloudState,
+  PromptTemplate,
+  RunSession,
+  RuntimeState,
+  SkillPackage,
+  TargetProfile,
+  TargetVersion,
+} from '@/types/domain'
+
+const now = Date.now()
+const H = 3600_000
+
+/** 原版 6 大注入客户端（注入路径与 inject-spec.ts 的规格一一对应） */
+export const seedTargets: TargetProfile[] = [
+  {
+    id: 'codex',
+    kind: 'codex',
+    name: 'Codex 破甲',
+    injectPath: '~/.codex/AGENTS.md',
+    desc: '适用于 GPT-6.0 / v4 Pro 等顶级模型。提示词写入 AGENTS.md 注入块（原内容自动备份、只追加块内），重启后生效。',
+    installedVersionId: 'codex-v4',
+    createdAt: now - 720 * H,
+    updatedAt: now - 5 * H,
+  },
+  {
+    id: 'zcode',
+    kind: 'zcode',
+    name: 'ZCode 破甲',
+    injectPath: '~/.zcode/AGENTS.md',
+    desc: '提示词 + 系统记忆 + 系统提示词，写入 AGENTS.md 与全局记忆；重启 ZCode 生效。',
+    installedVersionId: null,
+    createdAt: now - 700 * H,
+    updatedAt: now - 30 * H,
+  },
+  {
+    id: 'cursor',
+    kind: 'cursor',
+    name: 'Cursor 破甲',
+    injectPath: '~/.cursor/rules/寒霜注入.mdc',
+    desc: '工作规范注入 Cursor 全局规则（User Rules，alwaysApply）；卸载时可还原原规则。',
+    installedVersionId: null,
+    createdAt: now - 680 * H,
+    updatedAt: now - 50 * H,
+  },
+  {
+    id: 'claude',
+    kind: 'claude',
+    name: 'Claude 破甲',
+    injectPath: '~/.claude/CLAUDE.md',
+    desc: '工作规范注入 ~/.claude/CLAUDE.md 注入块，用户自有内容保留，备份可卸载恢复。',
+    installedVersionId: null,
+    createdAt: now - 660 * H,
+    updatedAt: now - 80 * H,
+  },
+  {
+    id: 'workbuddy',
+    kind: 'workbuddy',
+    name: 'WorkBuddy 破甲（国际版）',
+    injectPath: '云记忆档案 + MEMORY.md',
+    desc: '适配国际版：工作规范 → 云记忆档案 memoryBlock + MEMORY.md + 技能库（sha256 清单）。',
+    installedVersionId: null,
+    createdAt: now - 640 * H,
+    updatedAt: now - 90 * H,
+  },
+  {
+    id: 'dsh',
+    kind: 'dsh',
+    name: 'DeepSeek Harness 破甲',
+    injectPath: '~/.dsh/AGENTS.md',
+    desc: '提示词写入 ~/.dsh/AGENTS.md 注入块；懒人包同时部署 shield 协议与注入模板。原文件已备份，卸载可完整还原。',
+    installedVersionId: 'dsh-kit5',
+    createdAt: now - 600 * H,
+    updatedAt: now - 2 * H,
+  },
+]
+
+/** 版本 = 提示词包（文件对应 resources/*.md） */
+export const seedVersions: TargetVersion[] = [
+  {
+    id: 'v-codex-v5',
+    targetId: 'codex',
+    label: '顶尖破甲 V5',
+    desc: 'GPT-6 Astra / GPT-5.6 Sol 双提示词 · 不装任何 skills',
+    file: 'codex-astra-6',
+    choices: [
+      { name: '六 · GPT-6 Astra', desc: 'Astra 事务提交规范 · 适合 GPT-6.0', file: 'codex-astra-6' },
+      { name: '5.6 · GPT-5.6 Sol', desc: 'Sol 无限制执行规范 · 适合 GPT-5.6', file: 'codex-astra-56' },
+    ],
+    recommended: true,
+    skillIds: [],
+    createdAt: now - 400 * H,
+    updatedAt: now - 10 * H,
+  },
+  {
+    id: 'v-codex-v4',
+    targetId: 'codex',
+    label: '顶尖破甲 V4',
+    desc: '最新规范 + 63 模块 V4 专属技能库',
+    file: '寒霜v4.md',
+    choices: [],
+    recommended: false,
+    skillIds: ['sk-v4-lib'],
+    createdAt: now - 500 * H,
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'v-codex-v3',
+    targetId: 'codex',
+    label: '顶尖破甲 V3',
+    desc: '工作规范 · 硬拒绝场景覆盖 + 拒绝话术全清单 + 过程进度播报',
+    file: '寒霜v3.md',
+    choices: [],
+    recommended: false,
+    skillIds: [],
+    createdAt: now - 520 * H,
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'v-codex-v2',
+    targetId: 'codex',
+    label: '顶尖破甲 V2',
+    desc: '完整 CTF Lab 2.0 规范 · 身份路由 + 交付标准 + 压缩防护',
+    file: '寒霜v1.2.md',
+    choices: [],
+    recommended: false,
+    skillIds: [],
+    createdAt: now - 540 * H,
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'v-codex-v1',
+    targetId: 'codex',
+    label: '顶尖破甲 v1',
+    desc: '旧版顶尖提示词 · 完整工程规范 · 项目类型分类 + 两阶段交付（英文版）',
+    file: '寒霜-变体B-v3-英文.md',
+    choices: [],
+    recommended: false,
+    skillIds: [],
+    createdAt: now - 560 * H,
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'v-codex-pro',
+    targetId: 'codex',
+    label: '破甲助手专业版v1',
+    desc: '旧版 v5 提示词 + 专业版技能包（5 入口技能 + 166 模块）',
+    file: '破甲助手专业版v1.md',
+    choices: [],
+    recommended: false,
+    skillIds: ['sk-pro-lib'],
+    createdAt: now - 580 * H,
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'v-dsh-kit5',
+    targetId: 'dsh',
+    label: 'DSH 破甲懒人包 v5',
+    desc: '人设 + 每轮重锁协议 + 150 技能包',
+    file: 'dsh-kit-v5',
+    choices: [],
+    recommended: true,
+    skillIds: ['sk-dsh-150'],
+    createdAt: now - 300 * H,
+    updatedAt: now - 3 * H,
+  },
+  {
+    id: 'v-dsh-v4',
+    targetId: 'dsh',
+    label: 'DeepSeek Harness 破甲 V4',
+    desc: '工作规范 v4 · 自动安装 V4 专属技能（63 模块）',
+    file: '寒霜v4-claude.md',
+    choices: [],
+    recommended: false,
+    skillIds: [],
+    createdAt: now - 320 * H,
+    updatedAt: now - 40 * H,
+  },
+]
+
+export const seedSkills: SkillPackage[] = [
+  {
+    id: 'sk-v4-lib',
+    name: 'V4 专属技能库',
+    versionIds: ['v-codex-v4'],
+    dir: '.codex/skills/codex-skills-v4',
+    modules: 63,
+    enabled: true,
+    description: '顶尖破甲 V4 专属，63 模块',
+    updatedAt: now - 20 * H,
+  },
+  {
+    id: 'sk-pro-lib',
+    name: '专业版技能包',
+    versionIds: ['v-codex-pro'],
+    dir: '.codex/skills/codex-skills-pro-v1',
+    modules: 166,
+    enabled: false,
+    description: '5 个入口技能 + 166 个模块',
+    updatedAt: now - 50 * H,
+  },
+  {
+    id: 'sk-dsh-150',
+    name: 'DSH 懒人包 150 技能',
+    versionIds: ['v-dsh-kit5'],
+    dir: '.dsh/skills',
+    modules: 150,
+    enabled: true,
+    description: '随懒人包 v5 部署，含 shield 协议模板',
+    updatedAt: now - 3 * H,
+  },
+  {
+    id: 'sk-wangzha',
+    name: '王炸技能库',
+    versionIds: [],
+    dir: 'resources/王炸codex/.codex/skills',
+    modules: 290,
+    enabled: true,
+    description: '通用技能库：290 目录 / 2107 文件，全部版本可用',
+    updatedAt: now - 80 * H,
+  },
+]
+
+export const seedPrompts: PromptTemplate[] = [
+  { id: 'pm-v5', name: '寒霜v5', file: '寒霜v5.md', versionIds: [], content: '# 寒霜 v5\n（从 resources/寒霜v5.md 读取）', updatedAt: now - 5 * H },
+  { id: 'pm-v4', name: '寒霜v4', file: '寒霜v4.md', versionIds: ['v-codex-v4'], content: '# 寒霜 v4\n（从 resources/寒霜v4.md 读取）', updatedAt: now - 6 * H },
+  { id: 'pm-v3', name: '寒霜v3', file: '寒霜v3.md', versionIds: [], content: '# 寒霜 v3', updatedAt: now - 7 * H },
+  { id: 'pm-v12', name: '寒霜v1.2（海鸥版）', file: '寒霜v1.2.md', versionIds: [], content: '# CTF Lab 2.0', updatedAt: now - 8 * H },
+  { id: 'pm-v4c', name: '寒霜v4-claude', file: '寒霜v4-claude.md', versionIds: [], content: '# 寒霜 v4 · Claude Code 版', updatedAt: now - 9 * H },
+  { id: 'pm-pro', name: '破甲助手专业版v1', file: '破甲助手专业版v1.md', versionIds: [], content: '# 专业版 v1', updatedAt: now - 10 * H },
+  { id: 'pm-en', name: '寒霜 变体B v3（英文）', file: '寒霜-变体B-v3-英文.md', versionIds: [], content: '# Hanshuang v3 EN', updatedAt: now - 11 * H },
+]
+
+export const seedRuntime: RuntimeState = {
+  ready: true,
+  running: false,
+  pid: null,
+  checks: {
+    codexHome: true,
+    codexExe: true,
+    desktopExe: false,
+    skills: true,
+    prompts: true,
+  },
+  counts: { skills: 290, prompts: 3 },
+  runtimeMB: 380,
+  hasKey: true,
+  root: 'F:\\重构ui\\alice破甲\\resources\\王炸codex',
+  // 浏览器预览时的占位来源（真实清单由 engine_probe 返回）
+  promptSources: [
+    { rel: '_assets/prompts', label: '内置提示词库', path: '', count: 3, active: true },
+  ],
+  configProvider: 'custom',
+  hostConfigExists: false,
+  hostConfigPath: '',
+}
+
+export const seedCloud: CloudState = {
+  running: false,
+  listenHost: '127.0.0.1',
+  listenPort: 8317,
+  upstreams: [
+    { id: 'up-codex', client: 'Codex', originalUrl: 'https://api.openai.com/v1', attached: false },
+    { id: 'up-zcode', client: 'ZCode', originalUrl: 'https://api.zcode.example/v1', attached: false },
+  ],
+  lastTest: null,
+  logs: [],
+}
+
+
+export function newSession(targetId: string, versionId: string): RunSession {
+  return {
+    id: `s-${now.toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`,
+    targetId,
+    versionId,
+    status: 'idle',
+    messages: [],
+    startedAt: now,
+    endedAt: null,
+  }
+}
