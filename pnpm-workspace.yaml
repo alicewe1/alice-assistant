@@ -1,8 +1,14 @@
 packages:
   - .
 
+# pnpm 构建脚本白名单。
+# 值必须是布尔；pnpm 初始化时的模板占位串（"set this to true or false"）
+# 会被判为「未批准」，install 直接以 ERR_PNPM_IGNORED_BUILDS 退出 1 ——
+# esbuild 的 postinstall 不执行，随后的 `pnpm run release` 也会连带失败。
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 
+# pnpm 10 及更早用 onlyBuiltDependencies；v11 起被 allowBuilds 取代。
+# 两个键并存，读写行为一致，同时兼容 README 声明的 pnpm >= 9。
 onlyBuiltDependencies:
   - esbuild
