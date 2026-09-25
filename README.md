@@ -115,25 +115,132 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 | 扩展机制 | MCP（stdio） |
 
 Tauri 原生外壳 + React 单页界面。提示词列表、技能库、版本清单、运行时控制、自检结果、实时日志都在同一屏里完成，状态直接可见，不用去翻日志文件。
+
 ---
 
 ## 从源码构建
 
-前置：Node 18+、Rust stable、**MSVC 工具链**（VS Build Tools 的 VCTools 工作负载）、WebView2 Runtime（Win11 自带）。
+### 前置环境
+
+| 依赖 | 版本要求 | 说明 |
+|---|---|---|
+| **Node.js** | ≥ 18（实测 24.19） | 前端构建 |
+| **pnpm** | ≥ 9（实测 11.8） | 仓库只带 `pnpm-lock.yaml`，**没有 `package-lock.json`** |
+| **Rust** | stable（实测 1.98.1） | 后端编译 |
+| **MSVC 工具链** | VS Build Tools 2022 + **VCTools 工作负载** | Rust 装的是 MSVC 目标，缺 `link.exe` 会直接报 `link.exe not found` |
+| **WebView2 Runtime** | — | Win11 自带；Win10 需自行安装 |
+
+> **为什么必须用 pnpm**：仓库里的锁文件是 `pnpm-lock.yaml`。用 `npm install` 会忽略它、按 `package.json` 重新解析依赖，装出来的版本可能和发布版不一致。
+
+### 1. 安装依赖
 
 ```bash
-npm install
-
-npm run desktop        # 开发模式（Tauri dev）
-npm run check          # 仅类型检查
-npm run release        # 生产构建：tsc + vite + cargo release
+pnpm install
 ```
 
-生产构建必须显式带上 `--features custom-protocol`，否则 tauri 的 `build.rs` 会判定为 dev 模式：二进制去加载 `devUrl` 而不内嵌前端资源，运行表现为「嗯…无法访问此页面 / 127.0.0.1 拒绝连接」。
+### 2. 开发模式
+
+`tauri.conf.json` 里的 `beforeDevCommand` 是**空的** —— 也就是说 `tauri dev` **不会**自动帮你起前端服务，需要开两个终端：
 
 ```bash
+# 终端 1：常驻前端服务（固定 5183 端口，与 devUrl 一致）
+pnpm run web
+
+# 终端 2：起 Tauri 窗口
+pnpm run desktop
+```
+
+`pnpm run desktop` 会先 `vite build` 再 `tauri dev`。第二个终端需要 MSVC 环境变量，否则链接失败：
+
+```powershell
+# PowerShell：先包一层 vcvars64（路径按你的 VS 安装位置调整）
+$vs = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && pnpm run desktop"
+```
+
+**只想看界面、不编译 Rust**：直接跑 `pnpm run web`，浏览器打开 `http://127.0.0.1:5183`。此时后端调用会降级（页面显示「浏览器预览」），但界面、主题、教程指引都能看。
+
+### 3. 生产构建
+
+```bash
+pnpm run release
+```
+
+这一步等价于三条命令：
+
+```bash
+tsc --noEmit                                    # 类型检查
+vite build                                      # 前端 → dist/
 cargo build --release --features custom-protocol --manifest-path src-tauri/Cargo.toml
 ```
+
+产物：`src-tauri/target/release/alice-ui.exe`
+
+> **`--features custom-protocol` 不能省。**
+> tauri 的 `build.rs` 里写的是 `let dev = !custom_protocol;` —— 不开这个 feature，
+> cargo 会给出 `cargo:rustc-cfg=dev`，二进制就变成 dev 模式：它去加载
+> `tauri.conf.json` 的 `devUrl`（`http://127.0.0.1:5183`）而**不内嵌** `dist/`。
+> 运行时的表现是窗口标题正常、内容却是「**嗯…无法访问此页面 / 127.0.0.1 拒绝连接**」。
+> 所以生产构建必须显式带上它。
+
+构建完可以自检一下有没有编成 dev 模式（exe 里应当能找到 dist 的资源名）：
+
+```powershell
+# 注意：必须用绝对路径。.NET 的 File API 按「进程启动目录」解析相对路径，
+# 不受 PowerShell 的 Set-Location 影响，直接传相对路径会报「找不到路径」。
+$root  = (Get-Location).Path
+$exe   = Join-Path $root 'src-tauri\target\release\alice-ui.exe'
+$dist  = Join-Path $root 'dist\assets'
+$asset = (Get-ChildItem $dist -Filter 'index-*.js' | Select-Object -First 1).Name
+$ascii = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
+if ($ascii.Contains($asset)) { "OK：已内嵌 $asset" } else { "异常：这是 dev 模式二进制" }
+```
+
+### 4. 组装分发包
+
+源码仓库**不含运行体**（`resources/` 未入库 —— 里面是 Codex 运行时、技能库与素材，体积与授权原因不适合进 Git）。要得到一个能直接跑的分发目录，需要：
+
+```
+<分发目录>/
+├── alice-ui.exe          ← 由上一步构建产出，可改名
+└── resources/            ← 运行体，需自行准备
+    ├── .codex/           config.toml / prompts / skills / mcp
+    ├── runtime/codex/    便携 Codex CLI
+    ├── tools/            adb 等
+    ├── _assets/          素材库（prompts / skill）
+    └── profiles/         客户端预设与版本清单
+```
+
+程序按以下顺序探测运行体根（`runtime.rs` 的 `runtime_root`），**不写死盘符**：
+
+1. `ALICE_RUNTIME_ROOT` 环境变量（排障 / 自定义部署）
+2. exe 同级 `resources/`
+3. exe 同级 `resources/王炸codex`（兼容旧包装结构）
+4. exe 同级 `王炸codex/`
+5. Tauri `resource_dir`
+6. 开发期兜底（当前工作目录）
+
+判定标准是**目录里存在 `.codex` 或 `runtime`** —— 所以哪怕目录名不同，只要满足这条也能被认出来。
+
+部署到分发目录有现成脚本：
+
+```powershell
+# 只打印计划，不动手
+powershell -File deploy-aijail-opt.ps1 -WhatIfOnly
+
+# 实际部署（默认：仓库同级目录「新alice助手」；用 -Pkg 指定别处）
+powershell -File deploy-aijail-opt.ps1
+```
+
+脚本做四件事：停掉运行中的进程 → 把旧 exe 备份成 `*.rollback-<时间戳>` → 覆盖新 exe → 重新启动。
+
+### 5. 构建前注意
+
+如果你自己改过运行体内容，注意这几处**不要随包分发**（`NOTICE` 里有明确说明）：
+
+- OpenAI Codex / ChatGPT **官方桌面端**（`resources/runtime/desktop/`）—— 专有软件，未授予再分发权
+- 个人的会话记录、记忆库、状态数据库（`.codex` 下的 `*.sqlite`、`sessions/`）
+- `config.toml` 里的 API Key
 
 ### 仓库结构
 
@@ -142,13 +249,27 @@ alice-ui/
 ├── src/                    前端（React + TS）
 │   ├── components/         通用组件（含 tour.tsx 教程引擎）
 │   ├── lib/                store / 后端调用封装 / 教程步骤表
-│   ├── pages/              九个功能页
+│   ├── pages/              功能页
 │   └── styles/             设计系统 tokens.css
 ├── src-tauri/              后端（Rust）
 │   ├── src/                inject / profiles / runtime / cloud / alias …
-│   └── capabilities/       Tauri 权限清单
-└── docs/screenshots/       README 配图
+│   ├── capabilities/       Tauri 权限清单
+│   └── tauri.conf.json     窗口 / 构建配置
+├── docs/screenshots/       README 配图
+└── deploy-aijail-opt.ps1   部署脚本
 ```
+
+### 可用的 npm scripts
+
+| 脚本 | 作用 |
+|---|---|
+| `pnpm run web` | 前端 dev server（5183，固定端口） |
+| `pnpm run dev` | 同上，但不锁端口 |
+| `pnpm run check` | 仅类型检查（`tsc --noEmit`） |
+| `pnpm run build` | 类型检查 + 前端打包 |
+| `pnpm run desktop` | 前端打包 + `tauri dev` |
+| `pnpm run release` | 完整生产构建（含 Rust release） |
+| `pnpm run release:exe` | 只跑 Rust release 编译 |
 
 ---
 

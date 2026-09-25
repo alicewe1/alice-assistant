@@ -36,7 +36,7 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 | **Skill library management** | Skills are managed as packs and synced into each client's skill directory; `simple` / `tree` / `router` layouts are detected automatically and copied as whole trees so sub-skills and relative references stay valid |
 | **Free combination** | Prompt × skill pack × client, in any combination. One combination = one `manifest.json`; adding one = adding a directory, removing one = deleting a directory, with no code changes |
 | **No client restrictions** | Built-in presets for common agents, plus custom setups: specify a prompt file, a skill folder, and a target folder to wire up any client |
-| **Bundled portable Codex** | Codex runtime and the official desktop app ship in the package — works out of the box, no system install required |
+| **Bundled portable Codex** | The Codex runtime ships in the package — works out of the box, no system install required |
 | **Environment isolation** | Child processes get redirected `CODEX_HOME` / `APPDATA` / `LOCALAPPDATA` / `TEMP` / `PATH`; your real user configuration is never touched |
 | **Path-agnostic** | Resolved by probing env var → bundle layout → resource dir → dev fallback. No hardcoded drive letters, no config edits when you move the folder |
 | **Whole-file takeover** | One uniform rule for every client: the existing file is renamed to `-bak` first, then the rendered content is written in full. Reinstalling never accumulates, and uninstalling means deleting the file and restoring the `-bak` |
@@ -50,8 +50,8 @@ The whole runtime (including a bundled portable Codex) ships inside the package.
 | Ships in the package | Runtime, dependencies, and private `APPDATA` / `TEMP` all live inside the bundle |
 | Random instance name | Each launch creates a random process image name (via a hard link, so it shares the same data and **costs no extra disk space**); the UI shows the current instance name so multiple instances stay distinguishable |
 | Automatic cleanup | The process is attached to a Job Object at creation, so the kernel reclaims the whole process tree when the main app exits — no leftovers |
-| One-click self-check | Runs `codex doctor` and shows pass/fail items with expandable raw output |
-| Two forms | CLI (standalone console TUI) and the official desktop app, each with its own config directory, isolated from any system-wide install |
+| One-click self-check | Checks runtime paths and integrity item by item, showing pass/fail with expandable detail |
+| Two forms | CLI (standalone console TUI) and the desktop app, each with its own config directory, isolated from any system-wide install |
 
 ---
 
@@ -91,13 +91,157 @@ A Tauri native shell with a React single-page interface. Prompt lists, skill lib
 
 ### Build
 
+#### Prerequisites
+
+| Dependency | Version | Notes |
+|---|---|---|
+| **Node.js** | ≥ 18 (tested 24.19) | Frontend build |
+| **pnpm** | ≥ 9 (tested 11.8) | The repo ships only `pnpm-lock.yaml` — there is **no** `package-lock.json` |
+| **Rust** | stable (tested 1.98.1) | Backend compilation |
+| **MSVC toolchain** | VS Build Tools 2022 + the **VCTools workload** | Rust targets MSVC; without `link.exe` you get `link.exe not found` |
+| **WebView2 Runtime** | — | Bundled with Windows 11; install separately on Windows 10 |
+
+> **pnpm is required**: the lockfile in this repo is `pnpm-lock.yaml`. `npm install` ignores it and re-resolves dependencies from `package.json`, which may pull versions that differ from the released build.
+
+#### 1. Install dependencies
+
 ```bash
-npm install
-npm run desktop      # development
-npm run release      # production build
+pnpm install
 ```
 
-> Production builds must explicitly enable `--features custom-protocol`, otherwise the binary loads the dev server URL and fails with "127.0.0.1 refused to connect".
+#### 2. Development
+
+`beforeDevCommand` in `tauri.conf.json` is **empty** — `tauri dev` will *not* start the frontend server for you. Use two terminals:
+
+```bash
+# Terminal 1: long-running frontend server (fixed port 5183, matching devUrl)
+pnpm run web
+
+# Terminal 2: launch the Tauri window
+pnpm run desktop
+```
+
+`pnpm run desktop` runs `vite build` then `tauri dev`. The second terminal needs the MSVC environment, otherwise linking fails:
+
+```powershell
+# PowerShell: wrap with vcvars64 first (adjust the path to your VS install)
+$vs = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && pnpm run desktop"
+```
+
+**UI only, no Rust compilation**: just run `pnpm run web` and open `http://127.0.0.1:5183`. Backend calls degrade gracefully (the UI shows "browser preview"), but the interface, themes, and the tutorial tour all work.
+
+#### 3. Production build
+
+```bash
+pnpm run release
+```
+
+This is equivalent to:
+
+```bash
+tsc --noEmit                                    # type check
+vite build                                      # frontend → dist/
+cargo build --release --features custom-protocol --manifest-path src-tauri/Cargo.toml
+```
+
+Output: `src-tauri/target/release/alice-ui.exe`
+
+> **`--features custom-protocol` is not optional.**
+> tauri's `build.rs` contains `let dev = !custom_protocol;` — without this feature,
+> cargo emits `cargo:rustc-cfg=dev` and the binary becomes a dev build: it loads
+> `devUrl` (`http://127.0.0.1:5183`) from `tauri.conf.json` and does **not** embed
+> `dist/`. The symptom is a window with the correct title showing
+> "**Hmm… can't reach this page / 127.0.0.1 refused to connect**".
+
+You can verify the binary is not a dev build (the dist asset name should appear inside the exe):
+
+```powershell
+# Absolute paths are required: .NET File APIs resolve relative paths against the
+# process start directory, not PowerShell's current location, so a relative path
+# fails with "could not find a part of the path" even after Set-Location.
+$root  = (Get-Location).Path
+$exe   = Join-Path $root 'src-tauri\target\release\alice-ui.exe'
+$dist  = Join-Path $root 'dist\assets'
+$asset = (Get-ChildItem $dist -Filter 'index-*.js' | Select-Object -First 1).Name
+$ascii = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
+if ($ascii.Contains($asset)) { "OK: $asset embedded" } else { "Unexpected: this is a dev-mode binary" }
+```
+
+#### 4. Assembling a distribution folder
+
+This source repository **does not include the runtime body** (`resources/` is not committed — it holds the Codex runtime, skill libraries, and assets, which are too large and license-encumbered for Git). To get a runnable distribution:
+
+```
+<dist-dir>/
+├── alice-ui.exe          ← produced by the previous step, may be renamed
+└── resources/            ← runtime body, you supply it
+    ├── .codex/           config.toml / prompts / skills / mcp
+    ├── runtime/codex/    portable Codex CLI
+    ├── tools/            adb and friends
+    ├── _assets/          asset library (prompts / skill)
+    └── profiles/         client presets and version manifests
+```
+
+The app probes for the runtime root in this order (`runtime_root` in `runtime.rs`) — **no drive letters are hardcoded**:
+
+1. `ALICE_RUNTIME_ROOT` environment variable (troubleshooting / custom deployment)
+2. `resources/` next to the exe
+3. `resources/王炸codex` next to the exe (legacy wrapper layout)
+4. `王炸codex/` next to the exe
+5. Tauri `resource_dir`
+6. Development fallback (current working directory)
+
+A directory qualifies if it **contains `.codex` or `runtime`**, so a differently-named folder still works as long as it satisfies that.
+
+A deploy script is provided:
+
+```powershell
+# Print the plan only, change nothing
+powershell -File deploy-aijail-opt.ps1 -WhatIfOnly
+
+# Perform the deploy (default target: a "新alice助手" folder beside the repo)
+powershell -File deploy-aijail-opt.ps1 -Pkg <dist-dir>
+```
+
+It stops running processes, backs up the old exe as `*.rollback-<timestamp>`, copies the new exe, and restarts.
+
+#### 5. Build-time cautions
+
+Do **not** redistribute the following if you have them locally (see `NOTICE`):
+
+- The OpenAI Codex / ChatGPT **desktop app** (`resources/runtime/desktop/`) — proprietary, no redistribution right granted
+- Personal session records, memory stores, or state databases (`*.sqlite`, `sessions/` under `.codex`)
+- API keys inside `config.toml`
+
+#### Repository layout
+
+```
+alice-ui/
+├── src/                    Frontend (React + TS)
+│   ├── components/         Shared components (incl. the tour.tsx tutorial engine)
+│   ├── lib/                store / backend bindings / tour step tables
+│   ├── pages/              Feature pages
+│   └── styles/             Design-system tokens.css
+├── src-tauri/              Backend (Rust)
+│   ├── src/                inject / profiles / runtime / cloud / alias …
+│   ├── capabilities/       Tauri permission manifests
+│   └── tauri.conf.json     Window / build config
+├── docs/screenshots/       README images
+└── deploy-aijail-opt.ps1   Deploy script
+```
+
+#### npm scripts
+
+| Script | Purpose |
+|---|---|
+| `pnpm run web` | Frontend dev server (port 5183, strict) |
+| `pnpm run dev` | Same, without a pinned port |
+| `pnpm run check` | Type check only (`tsc --noEmit`) |
+| `pnpm run build` | Type check + frontend bundle |
+| `pnpm run desktop` | Frontend bundle + `tauri dev` |
+| `pnpm run release` | Full production build (incl. Rust release) |
+| `pnpm run release:exe` | Rust release compile only |
 
 ---
 
