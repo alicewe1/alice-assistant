@@ -34,7 +34,7 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 
 <div align="center">
 
-![总览](docs/screenshots/overview.png)
+![总览](docs/screenshots/overview.jpg)
 
 *总览 —— 客户端接入状态一屏看全*
 
@@ -42,7 +42,7 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 
 <div align="center">
 
-![目标](docs/screenshots/targets.png)
+![目标](docs/screenshots/targets.jpg)
 
 *目标 —— 选客户端 → 选预设组 → 确认提示词与技能 → 一键注入*
 
@@ -52,7 +52,7 @@ Alice 助手是一个面向 Windows 的便携式桌面工具，用来管理 AI �
 
 <div align="center">
 
-![新手教程](docs/screenshots/tour.png)
+![新手教程](docs/screenshots/tour.jpg)
 
 *新手教程 —— 挖孔高亮 + 指示箭头 + 分步讲解，支持跳过 / 上一步 / 下一步*
 
