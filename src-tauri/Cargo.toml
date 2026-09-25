@@ -1,7 +1,7 @@
 [package]
 name = "alice-ui"
 version = "5.0.0"
-description = "Alice 破甲工作台 - Bench-01"
+description = "Alice 助手工作台 - Bench-01"
 edition = "2021"
 
 [build-dependencies]
