@@ -304,17 +304,13 @@ Copyright (C) 2026 alicewe1 — Licensed under GNU GPL v3.0 or later
 
 ## Support the project
 
-Everything here — design, code, packaging, docs, and every on-device debugging session — is maintained by a single person. If this saved you some time, or you just want to see it keep going, feel free to use the code below.
+If this project has been helpful to you, you can scan the QR code below with WeChat to donate.
 
 <div align="center">
 
 <img src="docs/sponsor-qr.jpg" alt="Sponsor QR" width="240">
 
-**Buy me a coffee**
-
 </div>
-
-No obligation at all — filing issues, reporting problems, or sharing the project with someone who needs it counts just as much.
 
 ---
 
