@@ -1214,7 +1214,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (p: PageId) => void }) {
             <span className="glass-switch-label">{expanded ? 'Close' : 'Clients'}</span>
           </button>
         </div>
-        <span className="globe-crosshair globe-crosshair-x" /><span className="globe-crosshair globe-crosshair-y" />
       </section>
       <CursorBlob />
     </div>

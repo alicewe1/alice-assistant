@@ -3819,9 +3819,9 @@ textarea,
 .globe-route-dock button { display: grid; grid-template-columns: 16px auto; align-items: center; justify-content: center; gap: 5px; width: 48px; height: 34px; border: 1px solid transparent; border-radius: 13px; background: rgba(255,255,255,.26); color: var(--muted); cursor: pointer; transition: all .18s ease; }
 .globe-route-dock button span { font-size: 10px; }
 .globe-route-dock button:hover { color: var(--ink); background: rgba(255,255,255,.68); transform: translateY(-3px); border-color: var(--surf-border-strong); }
-.globe-crosshair { position: absolute; z-index: 1; left: 50%; top: calc(4vh + clamp(58px, 10vw, 142px) * 1.1 + 26px + min(430px, 36vw, 31vh)); background: rgba(var(--ink-raw), .1); pointer-events: none; }
-.globe-crosshair-x { width: min(1000px, 90vw); height: 1px; transform: translate(-50%, -50%); }
-.globe-crosshair-y { width: 1px; height: min(700px, 74vh); transform: translate(-50%, -50%); }
+/* 地球中心十字准线已移除（用户要求删除这两根横竖线）——
+   .globe-crosshair / -x / -y 三条规则连同 dashboard.tsx 里的 span 一并删掉，
+   不留死样式。 */
 @media (max-width: 900px) {
   .globe-frame { width: min(650px, 92vw); top: 50%; }
   .globe-wordmark { top: 10%; }
