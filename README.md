@@ -329,6 +329,22 @@ Copyright (C) 2026 alicewe1 — Licensed under GNU GPL v3.0 or later
 
 ---
 
+## 感谢捐赠
+
+这个项目从头到尾由我一个人维护：需求、设计、编码、打包、文档、以及每一次真机排查。如果它帮你省下了时间，或者你只是希望它继续更新下去，可以扫下面的码支持一下。
+
+<div align="center">
+
+<img src="docs/sponsor-qr.jpg" alt="赞赏码" width="240">
+
+**扫码请我喝杯咖啡**
+
+</div>
+
+不留也没关系 —— 提 issue、反馈问题、把项目分享给用得上的人，同样是很有价值的支持。
+
+---
+
 <div align="center">
 
 [English](README.en.md) · **简体中文**

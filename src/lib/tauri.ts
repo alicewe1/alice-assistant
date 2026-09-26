@@ -175,6 +175,60 @@ export const codexStop = () => invoke<LaunchResultDto>('codex_stop')
  */
 export const codexImportPortable = (source: string) =>
   invoke<string>('codex_import_portable', { source })
+
+/**
+ * 本机探测到的 Codex 运行时候选。
+ *
+ * `kind`：`cli`（便携 Codex 命令行）或 `desktop`（官方桌面端）。
+ * 精简分发包不含运行时，用户从本机导入时用这个列表一键选。
+ */
+export interface RuntimeCandidateDto {
+  /** 给用户看的说明，例如「Codex CLI（npm 全局包）」 */
+  label: string
+  /** 绝对路径。后端已用递归查找验证过，可直接导入 */
+  path: string
+  kind: 'cli' | 'desktop'
+  /** 目录体积（MB）—— 让用户知道要复制多大一份 */
+  size_mb: number
+}
+
+/** 扫本机常见 Codex 安装位置，只返回**实际存在**的目录 */
+export const codexRuntimeCandidates = () =>
+  invoke<RuntimeCandidateDto[]>('codex_runtime_candidates')
+
+/**
+ * 从本机导入 Codex **运行时**（与 `codexImportPortable` 分工不同）。
+ *
+ * - `codexImportPortable` → 导入 `.codex` **配置**（config.toml / prompts / skills）
+ * - 本函数 → 导入 **可执行运行时**（codex.exe 或桌面端）
+ *
+ * `kind` 取 `'cli'` 或 `'desktop'`。目标已存在且非空时后端拒绝覆盖。
+ */
+export const codexImportRuntime = (source: string, kind: 'cli' | 'desktop') =>
+  invoke<string>('codex_import_runtime', { source, kind })
+
+/** 包内两个运行时的就位状态（界面据此决定显示大面板还是收缩成小按钮） */
+export interface RuntimeStatusDto {
+  /** CLI 是否就位（后端实际检查标志文件，不是缓存） */
+  cli: boolean
+  /** 桌面端是否就位 */
+  desktop: boolean
+  /** 两者合计体积（MB），收缩态按钮上显示 */
+  size_mb: number
+}
+
+/** 查包内运行时就位状态 */
+export const codexRuntimeStatus = () => invoke<RuntimeStatusDto>('codex_runtime_status')
+
+/**
+ * 移除包内运行时（换版本 / 腾空间）。
+ *
+ * `kind`：`'cli'` / `'desktop'` / `'all'`。
+ * 后端会先停掉相关进程再删（运行中的 exe 会锁住目录）。
+ */
+export const codexRemoveRuntime = (kind: 'cli' | 'desktop' | 'all') =>
+  invoke<string>('codex_remove_runtime', { kind })
+
 /** 选 .md 文件复制进 .codex/prompts（同名先备份），返回导入的文件名列表 */
 export const importPromptsToCodex = (files: string[]) =>
   invoke<string[]>('import_prompts_to_codex', { files })

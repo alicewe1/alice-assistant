@@ -258,6 +258,118 @@ export function Runtime() {
   const rotate = () => withBusy(() => rotateAlias('cli'))
   const probe = () => withBusy(() => refreshProbe())
 
+  /*
+   * 运行时导入（CLI / 桌面端）。
+   *
+   * ══ 为什么和「便携箱导入」是两个入口 ═══════════════════════════════
+   * 两者解决完全不同的故障，混在一起会让人以为「不导就全废」：
+   *   便携箱导入 (.codex)  → 修「体检说配置缺失」，目标 <root>/.codex
+   *   运行时导入 (runtime) → 修「点启动报『包内桌面端缺失』」，目标
+   *                          <root>/runtime/{codex,desktop}
+   * 而且运行时是**可选**的：只想注入提示词的用户根本不需要它。
+   */
+  const [rtCands, setRtCands] = useState<be.RuntimeCandidateDto[]>([])
+  const [rtKind, setRtKind] = useState<'cli' | 'desktop'>('cli')
+  const [rtOpen, setRtOpen] = useState(false)
+  /**
+   * 扫描状态：null = 还没开始，true = 扫描中，false = 完成。
+   *
+   * ══ 为什么必须有这个（真机复现）══════════════════════════════════════
+   * 候选探测要递归扫 npm 全局目录并统计体积（本机约 380MB），实测耗时
+   * 明显超过一帧。没有加载态时，弹窗在结果回来前显示「没扫到……」的
+   * 空列表提示 —— 用户以为功能坏了，其实只是还在扫。
+   */
+  const [rtScanning, setRtScanning] = useState(false)
+  /**
+   * 包内运行时就位状态。
+   *
+   * ══ 面板为什么有时是大块、有时只有一个小按钮（用户要求）══════════════
+   * 导入面板本来是常驻的：无论装没装都铺一段说明 + 按钮，占掉半屏。
+   * 用户要的是「放进去了就收缩起来」—— 装好后只留一个小按钮，
+   * 把版面让给真正的主角（体检 / 启动 / 日志）。
+   * 状态来自后端实际扫文件系统（不是「这次点没点过导入」），因为用户
+   * 可能手工拷进去或删掉，两种操作都不经过界面。
+   */
+  const [rtStatus, setRtStatus] = useState<be.RuntimeStatusDto | null>(null)
+
+  const refreshRuntimeStatus = useCallback(async () => {
+    if (!be.IS_TAURI) return
+    try {
+      setRtStatus(await be.codexRuntimeStatus())
+    } catch {
+      setRtStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshRuntimeStatus()
+  }, [refreshRuntimeStatus, runtime.root])
+
+  const openRuntimeImport = () => {
+    if (!be.IS_TAURI) {
+      toast('浏览器预览无法扫本机目录', 'warn')
+      return
+    }
+    setRtOpen(true)
+    setRtCands([])
+    setRtScanning(true)
+    void be
+      .codexRuntimeCandidates()
+      .then((list) => setRtCands(list ?? []))
+      .catch(() => setRtCands([]))
+      .finally(() => setRtScanning(false))
+  }
+
+  const importRuntime = (source: string, kind: 'cli' | 'desktop') => {
+    withBusy(async () => {
+      try {
+        const msg = await be.codexImportRuntime(source, kind)
+        toast(msg, 'ok')
+        pushLog(`[runtime] ${msg}`, 'ok')
+        setRtOpen(false)
+        await refreshProbe()
+        await refreshCodex()
+        await refreshRuntimeStatus()
+      } catch (e) {
+        toast(`导入失败：${String(e)}`, 'bad')
+        pushLog(`[runtime] 导入失败：${String(e)}`, 'err')
+      }
+    })
+  }
+
+  /** 移除运行时（换版本 / 腾空间）*/
+  const removeRuntime = (kind: 'cli' | 'desktop' | 'all', label: string) => {
+    confirm(`确定移除${label}？\n\n移除后「启动」会不可用，需要时可以重新导入。`, () => {
+      withBusy(async () => {
+        try {
+          const msg = await be.codexRemoveRuntime(kind)
+          toast(msg, 'ok')
+          pushLog(`[runtime] ${msg}`, 'ok')
+          await refreshProbe()
+          await refreshCodex()
+          await refreshRuntimeStatus()
+        } catch (e) {
+          toast(`移除失败：${String(e)}`, 'bad')
+          pushLog(`[runtime] 移除失败：${String(e)}`, 'err')
+        }
+      })
+    })
+  }
+
+  /** 手选目录导入（候选列表里没有时用） */
+  const importRuntimeByPick = (kind: 'cli' | 'desktop') => {
+    if (!be.IS_TAURI) return
+    void (async () => {
+      try {
+        const picked = await be.pickImportSources('dir')
+        if (!picked.length) return
+        importRuntime(picked[0], kind)
+      } catch (e) {
+        toast(`选择失败：${String(e)}`, 'bad')
+      }
+    })()
+  }
+
   /**
    * 便携箱提示词注入：把下拉选中的那一份写成唯一生效（改写 config.toml）。
    * 成功后重启中的 codex 需要重启才会读到新提示词 —— 界面上给出提示。
@@ -439,6 +551,71 @@ export function Runtime() {
                   </button>
                 </div>
               )}
+              {/* ---------- 运行时（导入 / 移除）----------
+                  精简分发包装不下运行时（CLI 665MB / 桌面端 2.7GB），
+                  所以从本机现成的 Codex 导入。
+
+                  ══ 两种形态（用户要求「放好了就收缩」）══════════════════
+                  · 未就位 → 大面板：说明为什么需要、常见位置在哪、导入按钮
+                  · 已就位 → 一行小按钮：只显示「已就位 · N MB」+ 管理入口，
+                    把版面让给体检与启动。两种情况都留「移除」入口，
+                    方便换新版本。 */}
+              {runtime.root &&
+                (rtStatus?.cli || rtStatus?.desktop ? (
+                  <div className="row gap" style={{ marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge badge-ok">
+                      <CheckCircle2 size={11} /> 运行时已就位
+                    </span>
+                    <span className="mono sub" style={{ fontSize: 10.5 }}>
+                      {[rtStatus.cli && 'CLI', rtStatus.desktop && '桌面端'].filter(Boolean).join(' + ')}
+                      {rtStatus.size_mb > 0 && ` · ${rtStatus.size_mb} MB`}
+                    </span>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={anyBusy}
+                      onClick={openRuntimeImport}
+                      title="换用别的来源，或导入另一个运行时"
+                    >
+                      <FolderPlus size={11} /> 导入
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={anyBusy}
+                      onClick={() =>
+                        removeRuntime(
+                          rtStatus.cli && rtStatus.desktop ? 'all' : rtStatus.cli ? 'cli' : 'desktop',
+                          rtStatus.cli && rtStatus.desktop ? '全部运行时' : rtStatus.cli ? ' Codex CLI' : 'Codex 桌面端',
+                        )
+                      }
+                      title="移除包内运行时（换新版本 / 腾空间）"
+                    >
+                      <Trash2 size={11} /> 移除
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="glass glass-pad"
+                    style={{ marginBottom: 12, border: '1px dashed var(--line-strong, #c77)' }}
+                  >
+                    <div className="panel-head">
+                      <span className="kicker">RUNTIME / 运行时导入</span>
+                    </div>
+                    <div className="sub" style={{ marginBottom: 8 }}>
+                      本包不含 Codex 运行时（体积与授权原因），所以「启动」需要先指向你本机已装的
+                      Codex。运行时是**可选**的 —— 只用注入提示词/技能的话不用管这块。
+                    </div>
+                    <div className="row gap" style={{ flexWrap: 'wrap' }}>
+                      <button className="btn btn-primary btn-sm" disabled={anyBusy} onClick={openRuntimeImport}>
+                        <FolderPlus size={12} /> 导入 Codex 运行时
+                      </button>
+                      <span className="sub" style={{ fontSize: 10.5, alignSelf: 'center' }}>
+                        常见位置：CLI 在 <code>%APPDATA%\npm\node_modules\@openai\codex</code>；
+                        桌面端在 <code>%LOCALAPPDATA%\Programs</code>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
               {CHECK_LABELS.map(([key, label]) => {
                 const ok = runtime.checks[key]
 
@@ -901,6 +1078,93 @@ export function Runtime() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ---------- 运行时导入对话框 ---------- */}
+      {rtOpen && (
+        <Modal title="导入 Codex 运行时" onClose={() => setRtOpen(false)} width={680}>
+          <div className="sub" style={{ marginBottom: 12, lineHeight: 1.7 }}>
+            选一个**本机已装的 Codex** 把它复制进包内。列表只显示**本机实际存在**的候选；
+            扫不到就点下面的「手动选择目录」。
+            <br />
+            <b>CLI</b> 用于「启动 CLI」与终端会话；<b>桌面端</b>用于「启动桌面端」。
+            两者可分别导入，也可以都不导（只注入提示词与技能时不需要运行时）。
+          </div>
+
+          {/* 类型切换 */}
+          <div className="row gap" style={{ marginBottom: 12 }}>
+            {(['cli', 'desktop'] as const).map((k) => (
+              <button
+                key={k}
+                className={`chip${rtKind === k ? ' chip-on' : ''}`}
+                onClick={() => setRtKind(k)}
+              >
+                {k === 'cli' ? '便携 Codex CLI' : '官方桌面端'}
+              </button>
+            ))}
+          </div>
+
+          {/* 候选列表 */}
+          {rtScanning ? (
+            <div className="sub" style={{ marginBottom: 12 }}>
+              正在扫描本机常见 Codex 安装位置…（要递归统计体积，稍等几秒）
+            </div>
+          ) : (
+            (() => {
+              const list = rtCands.filter((c) => c.kind === rtKind)
+              if (!list.length) {
+                return (
+                  <div className="sub" style={{ marginBottom: 12 }}>
+                    没在本机常见位置扫到 {rtKind === 'cli' ? 'Codex CLI' : '官方桌面端'}。
+                    <br />
+                    常见位置：
+                    <br />· CLI：<code>%APPDATA%\npm\node_modules\@openai\codex</code>
+                    <br />· 桌面端：<code>%LOCALAPPDATA%\Programs</code> 或{' '}
+                    <code>C:\Program Files\WindowsApps\OpenAI.Codex_*</code>
+                    <br />
+                    确认装过之后，用下面的「手动选择目录」指到它的**安装根目录**即可
+                    （程序会自动往下递归查找，不用精确到 exe 那一层）。
+                  </div>
+                )
+              }
+              return (
+                <div style={{ marginBottom: 12, maxHeight: 260, overflow: 'auto' }}>
+                  {list.map((c) => (
+                    <div key={c.path} className="list-row">
+                      <div className="run-row-main" style={{ minWidth: 0 }}>
+                        <span className="run-row-label">
+                          {c.label}
+                          <span className="badge badge-neutral" style={{ marginLeft: 6 }}>
+                            {c.size_mb} MB
+                          </span>
+                        </span>
+                        <span className="mono sub run-row-note" style={{ wordBreak: 'break-all' }}>
+                          {c.path}
+                        </span>
+                      </div>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={anyBusy}
+                        onClick={() => importRuntime(c.path, c.kind)}
+                      >
+                        导入
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()
+          )}
+
+          <div className="row gap" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn btn-sm" disabled={anyBusy} onClick={() => importRuntimeByPick(rtKind)}>
+              <FolderPlus size={12} /> 手动选择目录
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setRtOpen(false)}>
+              取消
+            </button>
+          </div>
+        </Modal>
       )}
 
       {confirmNode}

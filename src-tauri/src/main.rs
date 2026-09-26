@@ -94,6 +94,11 @@ fn main() {
             runtime::codex_stop,
             runtime::codex_factory_reset,
             runtime::codex_import_portable,
+            // 运行时导入（CLI / 桌面端）：精简包不含运行时，用户从本机导入
+            runtime::codex_runtime_candidates,
+            runtime::codex_import_runtime,
+            runtime::codex_runtime_status,
+            runtime::codex_remove_runtime,
             runtime::codex_status,
             runtime::codex_alias_status,
             runtime::codex_alias_rotate,

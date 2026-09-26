@@ -204,6 +204,127 @@ pub struct ProbeReport {
     pub host_config_path: String,
 }
 
+/// 本机探测到的 Codex 运行时候选（供「导入运行时」对话框一键选取）。
+///
+/// `kind`：`cli`（便携 Codex 命令行）或 `desktop`（官方桌面端）。
+#[derive(Serialize, Clone)]
+pub struct RuntimeCandidate {
+    /// 给用户看的说明，例如「Codex CLI（npm 全局包）」
+    pub label: String,
+    /// 绝对路径。**已用 find_runtime_root 验证过**，可直接导入
+    pub path: String,
+    pub kind: String,
+    /// 目录体积（MB）——让用户知道要复制多大一份
+    pub size_mb: u64,
+}
+
+/// 包内两个运行时的**当前就位状态**（供界面决定显示什么）。
+///
+/// ══ 为什么要单独查一次（用户要求「放进去了就收缩起来」）══════════════
+/// 导入面板本来是常驻的：不管装没装都铺一大段说明 + 按钮，占掉半屏。
+/// 用户要的是「装好了就把这块收起来，只留一个小按钮」。
+/// 判断依据必须是**文件系统实况**（而不是「这次点没点过导入」）——
+/// 用户可能手工拷进去、也可能删掉，两种操作都不经过界面。
+/// 所以每次都实际检查标志文件，前端按结果切换「大面板 / 小按钮」。
+#[derive(Serialize, Clone)]
+pub struct RuntimeStatus {
+    /// CLI 是否就位（标志文件在）
+    pub cli: bool,
+    /// 桌面端是否就位
+    pub desktop: bool,
+    /// 两者的合计体积（MB），收缩态的按钮上显示，让用户知道占了多大
+    pub size_mb: u64,
+}
+
+/// 查包内运行时就位状态（实际检查标志文件，不信缓存）
+#[tauri::command]
+pub fn codex_runtime_status(app: AppHandle) -> RuntimeStatus {
+    let root = runtime_root(&app);
+    let cli_dir = root.join("runtime/codex");
+    let desk_dir = root.join("runtime/desktop");
+
+    const CLI_MARK_DIR: &str = "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin";
+    let cli = cli_dir.join(CLI_MARK_DIR).join("codex.exe").is_file()
+        || cli_dir
+            .join("vendor/x86_64-pc-windows-msvc/bin/codex.exe")
+            .is_file();
+    let desktop = desk_dir.join("app").join("ChatGPT.exe").is_file();
+
+    let mut size_mb = 0u64;
+    if cli {
+        size_mb += dir_size_mb_capped(&cli_dir, std::time::Duration::from_millis(300));
+    }
+    if desktop {
+        size_mb += dir_size_mb_capped(&desk_dir, std::time::Duration::from_millis(300));
+    }
+    RuntimeStatus { cli, desktop, size_mb }
+}
+
+/// 移除包内运行时（换版本 / 腾空间时用）。
+///
+/// ══ 为什么需要它（用户要求「方便导入新版本」）════════════════════════
+/// 导入逻辑对已存在的目标是**拒绝**的（防止覆盖正在用的运行体）。
+/// 没有移除入口时，用户想换新版本只能自己去文件管理器删目录 ——
+/// 而那个目录藏在 `resources\runtime\` 下，非技术用户很难找到。
+///
+/// `kind` 传 `"cli"` / `"desktop"`；传 `"all"` 两个都删。
+/// 删除前会先把进程停掉：桌面端 exe 正在跑时目录会占用，直接删必然失败，
+/// 报「文件被占用」对用户毫无帮助。
+#[tauri::command(async)]
+pub fn codex_remove_runtime(
+    app: AppHandle,
+    state: tauri::State<'_, CodexProc>,
+    guards: tauri::State<'_, alias::AliasGuards>,
+    kind: String,
+) -> Result<String, String> {
+    let root = runtime_root(&app);
+
+    // 先停进程：运行中的 exe 会锁住目录，不先停就会卡在「拒绝访问」
+    let _ = stop_impl(&app, &state, &guards);
+    std::thread::sleep(std::time::Duration::from_millis(400));
+
+    let targets: Vec<(&str, PathBuf)> = match kind.as_str() {
+        "cli" => vec![("Codex CLI", root.join("runtime/codex"))],
+        "desktop" => vec![("Codex 桌面端", root.join("runtime/desktop"))],
+        "all" => vec![
+            ("Codex CLI", root.join("runtime/codex")),
+            ("Codex 桌面端", root.join("runtime/desktop")),
+        ],
+        other => return Err(format!("未知的运行时类型：{other}")),
+    };
+
+    let mut removed: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    for (human, dir) in targets {
+        if !dir.exists() {
+            continue;
+        }
+        match std::fs::remove_dir_all(&dir) {
+            Ok(_) => {
+                removed.push(human.to_string());
+                emit_log(&app, format!("[runtime] 已移除 {human}"), "warn");
+            }
+            Err(e) => failed.push(format!("{human}: {e}")),
+        }
+    }
+
+    // runtime/ 空了就顺手删掉，别留一个空壳目录
+    let rt = root.join("runtime");
+    if rt.is_dir() {
+        if std::fs::read_dir(&rt).map(|mut d| d.next().is_none()).unwrap_or(false) {
+            let _ = std::fs::remove_dir(&rt);
+        }
+    }
+
+    if !failed.is_empty() {
+        return Err(format!("部分移除失败：{}", failed.join("; ")));
+    }
+    if removed.is_empty() {
+        return Ok("包内没有可移除的运行时".into());
+    }
+    Ok(format!("已移除：{}", removed.join("、")))
+}
+
 fn dir_count(p: &Path) -> usize {
     std::fs::read_dir(p)
         .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()).count())
@@ -320,6 +441,86 @@ fn first_line(exe: &Path, args: &[&str]) -> String {
         }
         Err(_) => String::new(),
     }
+}
+
+/// 把顶层 `key = value` 那一行**注释掉**（前面加 `# `），其余原样保留。
+///
+/// 用途：config.toml 里残留的失效引用（文件已不存在）会让 codex **硬失败**
+/// 起不来。删掉会丢线索，留着会崩 —— 注释掉是两者之间的正确取舍：
+/// 配置不再生效，用户还能在文件里看到原值、想用时手改回来。
+fn comment_out_key(text: &str, key: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        let is_target = !trimmed.starts_with('#')
+            && !trimmed.starts_with('[')
+            && trimmed
+                .strip_prefix(key)
+                .map(|r| r.trim_start().starts_with('='))
+                .unwrap_or(false);
+        if is_target {
+            out.push_str("# [已停用：原路径不存在，换机后无法解析] ");
+            out.push_str(raw);
+        } else {
+            out.push_str(raw);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// 取顶层 `key = value` 的原始值；key 不存在时返回 `None`。
+///
+/// 与 `toml_scalar` 的区别：后者「不存在」和「空值」都返回空串，
+/// 调用方分不清；这里用 Option 明确区分 —— 改写 config.toml 时必须知道
+/// 到底是「没这一项」（不该动）还是「有一项但是空的」（可能是坏配置）。
+fn toml_scalar_opt(text: &str, key: &str) -> Option<String> {
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with('#') || line.starts_with('[') {
+            continue;
+        }
+        let rest = line.strip_prefix(key)?;
+        let rest = rest.trim_start().strip_prefix('=')?;
+        let v = rest.trim();
+        let v = v.split(" #").next().unwrap_or(v).trim();
+        return Some(v.trim_matches('"').trim_matches('\'').to_string());
+    }
+    None
+}
+
+/// 把顶层 `key = value` 的值替换成 `value`（写成双引号字符串）。
+///
+/// ══ 保守替换：只动那一行，其余原样保留 ═══════════════════════════════
+/// 逐行扫描、只重写匹配的那一行，**不重新序列化整个文件** ——
+/// 否则注释、空行、段内顺序、引号风格全会被抹掉（见 raw_scalar 的注释里
+/// 记录的那次事故）。key 不存在时追加到文件头（顶层键必须在所有段之前）。
+fn set_toml_scalar(text: &str, key: &str, value: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 80);
+    let mut done = false;
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        let is_target = !trimmed.starts_with('#')
+            && !trimmed.starts_with('[')
+            && trimmed
+                .strip_prefix(key)
+                .map(|r| r.trim_start().starts_with('='))
+                .unwrap_or(false);
+        if is_target && !done {
+            out.push_str(&format!("{key} = \"{value}\"\n"));
+            done = true;
+        } else {
+            out.push_str(raw);
+            out.push('\n');
+        }
+    }
+    if !done {
+        // 顶层键要放在任何 [section] 之前，否则会被归到那个段里
+        let mut head = format!("{key} = \"{value}\"\n");
+        head.push_str(&out);
+        return head;
+    }
+    out
 }
 
 /// 从 TOML 文本里取顶层 `key = value` 的原始值（去引号）
@@ -3860,17 +4061,44 @@ pub fn codex_import_portable(app: AppHandle, source: String) -> Result<String, S
     }
     let root = runtime_root(&app);
     let dst = root.join(".codex");
-    // 已存在则拒绝 —— 覆盖正在用的运行体是破坏性操作，不做静默合并
+    /*
+     * ══ 已存在时怎么处理（真机死循环，必须区分两种「存在」）══════════════
+     *
+     * 早先的逻辑是「非空就拒绝」。这在真机上会卡死用户：
+     *   ① 用户导入运行时 → 点「启动桌面端/CLI」
+     *   ② **codex 自己**往包内 `.codex` 写了一堆东西
+     *      （plugins/cache、sqlite/codex-dev.db、tmp/arg0、state_*.sqlite…）
+     *   ③ 用户回头想导入本机 `~/.codex` 配置 → 被拒
+     *      「包内已存在 .codex 便携箱」→ 但他从没导入过便携箱！
+     *
+     * 关键区分：**「有 config.toml」才是真正的便携箱**；只有 codex 自己
+     * 拉起来的运行残留（sqlite/tmp/plugins/state-*.json）不算 —— 那些是
+     * 可丢弃的缓存，覆盖掉没有任何损失，反而正是用户想清掉的噪音。
+     *
+     * 所以现在的规则：
+     *   · 目标含 config.toml → 真便携箱，仍然拒绝（不做静默覆盖）
+     *   · 目标不含 config.toml → 判定为启动残留，直接清掉再导入
+     */
     if dst.exists() {
         let is_empty = std::fs::read_dir(&dst)
             .map(|mut d| d.next().is_none())
             .unwrap_or(false);
-        if !is_empty {
+        if !is_empty && dst.join("config.toml").is_file() {
             return Err(
-                "包内已存在 .codex 便携箱。若要换用导入的目录，请先在「清理数据」或手动移走现有的 .codex".into(),
+                "包内已存在 .codex 便携箱（含 config.toml）。若要换用导入的目录，\
+                 请先手动移走包内 .codex，或到「Alice-codex」页用「清理数据」。"
+                    .into(),
             );
         }
-        // 空壳（上一次导入失败/清理后残留）允许直接导入覆盖
+        if !is_empty {
+            // 启动残留：清掉再导。这里记一条日志，让用户在运行日志里看得到
+            // 「我确实替你清过」——避免以为文件凭空消失。
+            emit_log(
+                &app,
+                "[codex] 检测到包内 .codex 是启动残留（无 config.toml），先清理再导入".to_string(),
+                "warn",
+            );
+        }
         let _ = std::fs::remove_dir_all(&dst);
     }
 
@@ -3886,15 +4114,28 @@ pub fn codex_import_portable(app: AppHandle, source: String) -> Result<String, S
      * 改为与**出厂便携箱同构**的白名单：只复制原 .codex 里真实存在的
      * 功能目录 + 根下关键文件，其它一概不进包：
      *   目录：plugins（MCP 插件）、mcp、prompts、skills、rules、plans、
-     *         pets、vendor_imports、computer-use、thread-writer-locks
+     *         pets、vendor_imports、computer-use、thread-writer-locks、
+     *         managed-prompts（提示词正文，见下方说明）
      *   文件：config.toml、auth.json、api_key.txt、AGENTS.md、
      *         installation_id、version.json、.sandbox_migration、
      *         alias-registry.txt、cap_sid、state-*.json
      * 明确排除（运行数据/缓存）：sessions、archived_sessions、sqlite、
      *         .tmp、.system（codex 启动时自动重建）、__pycache__、
      *         *.sqlite*（会话/日志库）、history.jsonl 等。
+     *
+     * ══ 为什么必须带上 managed-prompts（真机 CLI 秒退的根因）════════════
+     * `config.toml` 里的 `model_instructions_file` 常常指向
+     * `<原 .codex>\managed-prompts\<名字>.md`，**用的是绝对路径**。
+     * 白名单早先漏了这个目录，导入后 config.toml 还在指那份文件、
+     * 文件却没跟过来，于是 codex 一启动就报：
+     *     Error loading configuration: failed to read model instructions file
+     *     C:\Users\<原用户>\.codex\managed-prompts\...md: 系统找不到指定的路径
+     * CLI 表现为**控制台窗口一闪就退**（exit 1），桌面端同理起不来。
+     * 这条路径本身就是原机器的绝对路径，换机必然失效 —— 所以要既带上
+     * 文件（下面 IMPORT_DIRS），又把 config.toml 里的路径改写成包内相对
+     * 路径（见 rewrite_instructions_path）。
      */
-    const IMPORT_DIRS: [&str; 10] = [
+    const IMPORT_DIRS: [&str; 11] = [
         "plugins",
         "mcp",
         "prompts",
@@ -3905,6 +4146,7 @@ pub fn codex_import_portable(app: AppHandle, source: String) -> Result<String, S
         "vendor_imports",
         "computer-use",
         "thread-writer-locks",
+        "managed-prompts",
     ];
     const IMPORT_FILES: [&str; 8] = [
         "config.toml",
@@ -3996,6 +4238,89 @@ pub fn codex_import_portable(app: AppHandle, source: String) -> Result<String, S
         }
     }
 
+    /*
+     * ══ 处理 config.toml 的 model_instructions_file（真机 CLI 秒退的根因）══
+     *
+     * 原机的 config.toml 形如：
+     *     model_instructions_file = "C:/Users/alicewe/.codex/managed-prompts/x.md"
+     * 这是**原机器的绝对路径**，换台电脑必然失效。codex 启动时读它失败就
+     * 直接退出，GUI 里表现为「CLI 控制台一闪就退」：
+     *     Error loading configuration: failed to read model instructions file
+     *     <原路径>: 系统找不到指定的路径 (os error 3)
+     *
+     * 分三种情况处理（都真机见过）：
+     *
+     *  ① 路径指向 `.codex` 内部 **且文件已随包导入**
+     *     → 改写成相对路径 `./managed-prompts/x.md`。
+     *       codex 的 model_instructions_file **相对 CODEX_HOME 解析**，
+     *       所以这份配置在原机、在别人机器上都能正确工作。
+     *
+     *  ② 路径指向 `.codex` 内部 **但文件不存在**（本机实测就是这种：
+     *     `~/.codex/managed-prompts/破甲助手专业版v1.md` 早已被删，
+     *     config.toml 却还留着引用 —— 一条**失效的残留配置**）
+     *     → **注释掉整行**并写一条警告日志。
+     *       为什么不保留：留着 100% 让 codex 起不来，而且是硬失败
+     *       （os error 3），用户除了手改配置没有任何恢复路径。
+     *       注释掉而不是删除，是为了保留线索、方便用户自己填回去。
+     *
+     *  ③ 路径在 `.codex` 之外（用户指向别处的自定义提示词）
+     *     → 原样不动。那是用户的真实意图，不该替他改。
+     */
+    let cfg_path = dst.join("config.toml");
+    if cfg_path.is_file() {
+        if let Ok(text) = std::fs::read_to_string(&cfg_path) {
+            if let Some(cur) = toml_scalar_opt(&text, "model_instructions_file") {
+                // 统一正反斜杠便于识别；大小写不敏感地找 `/.codex/`
+                let norm = cur.replace('\\', "/");
+                let lower = norm.to_ascii_lowercase();
+                let is_abs = norm.len() > 1 && norm.as_bytes()[1] == b':';
+
+                if is_abs && lower.contains("/.codex/") {
+                    let idx = lower.find("/.codex/").unwrap();
+                    let rel = norm[idx + "/.codex/".len()..].to_string();
+                    let target = dst.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+                    if target.is_file() {
+                        // 情况 ①：文件在包里 → 换相对路径
+                        let want = format!("./{rel}");
+                        let new_text = set_toml_scalar(&text, "model_instructions_file", &want);
+                        if new_text != text {
+                            let tmp = cfg_path.with_extension("toml.tmp");
+                            if std::fs::write(&tmp, &new_text).is_ok() {
+                                let _ = std::fs::rename(&tmp, &cfg_path);
+                                emit_log(
+                                    &app,
+                                    format!(
+                                        "[codex] 已把 model_instructions_file 改写为包内相对路径：{want}"
+                                    ),
+                                    "ok",
+                                );
+                            }
+                        }
+                    } else {
+                        // 情况 ②：残留引用 → 注释掉，否则 codex 必然起不来
+                        let new_text = comment_out_key(&text, "model_instructions_file");
+                        if new_text != text {
+                            let tmp = cfg_path.with_extension("toml.tmp");
+                            if std::fs::write(&tmp, &new_text).is_ok() {
+                                let _ = std::fs::rename(&tmp, &cfg_path);
+                                emit_log(
+                                    &app,
+                                    format!(
+                                        "[codex] 发现失效的提示词引用（{cur} 不存在），已在 config.toml 中注释掉。\
+                                         想用提示词的话，去「提示词」页选一份并注入即可。"
+                                    ),
+                                    "warn",
+                                );
+                            }
+                        }
+                    }
+                }
+                // 情况 ③：不在 .codex 内 —— 原样保留
+            }
+        }
+    }
+
     let msg = if failed.is_empty() {
         format!("便携箱导入完成：{copied} 个文件（运行数据已清空，重跑自检确认）")
     } else {
@@ -4006,6 +4331,347 @@ pub fn codex_import_portable(app: AppHandle, source: String) -> Result<String, S
         )
     };
     emit_log(&app, msg.clone(), "ok");
+    Ok(msg)
+}
+
+/// 递归找一个「标志文件」，返回**应被当作源根**的那个目录。
+///
+/// ══ 为什么必须递归，而不是拼死路径（真机失败过）════════════════════════
+/// 第一版按固定层级拼候选，比如
+/// `%APPDATA%\npm\node_modules\@openai\codex\vendor\x86_64-pc-windows-msvc`。
+/// 但本机 npm 包的真实结构是
+/// `@openai\codex\node_modules\@openai\codex-win32-x64\vendor\...\bin\codex.exe`
+/// —— **中间多了一套 `node_modules\@openai\codex-win32-x64`**。
+/// 于是候选列表里那条路径"存在"（上层目录确实在），点导入却报
+/// 「没找到 codex.exe」：校验用的是精确拼接，扫不到就拒。
+///
+/// 现改为「给起点 + 标志文件，深度优先找它」，命中即返回其所在目录。
+/// 好处：npm/pnpm/yarn 的层级差异都不影响；用户手选一个上层目录
+/// （甚至整个 node_modules）也能命中；不用维护各包管理器的布局猜测表。
+///
+/// `max_depth` 限深，避免用户误选盘符根时把整盘扫穿。
+fn find_runtime_root(start: &Path, marker_dir: &str, marker_file: &str, max_depth: usize) -> Option<PathBuf> {
+    let mut stack: Vec<(PathBuf, usize)> = vec![(start.to_path_buf(), 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > max_depth {
+            continue;
+        }
+        // 命中条件：该目录下 marker_dir/marker_file 是文件
+        if !marker_dir.is_empty() {
+            if dir.join(marker_dir).join(marker_file).is_file() {
+                return Some(dir);
+            }
+        } else if dir.join(marker_file).is_file() {
+            return Some(dir);
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            // 跳过噪音目录，别深挖缓存/版本库
+            if matches!(name.as_str(), ".git" | "__pycache__" | ".tmp" | "Cache" | "cache" | ".cache") {
+                continue;
+            }
+            stack.push((p, depth + 1));
+        }
+    }
+    None
+}
+
+/// 目录体积（MB，粗略，**带时间预算**）。
+///
+/// 超过 `budget` 就停下并返回已统计的部分 —— 体积只是给用户参考
+/// （「这份要复制多大」），不值得为它让对话框卡住。实测 npm 全局包
+/// 380MB / 数千文件，全量统计要数秒。
+fn dir_size_mb_capped(p: &Path, budget: std::time::Duration) -> u64 {
+    use std::time::Instant;
+    let start = Instant::now();
+    fn walk(d: &Path, acc: &mut u64, depth: usize, start: std::time::Instant, budget: std::time::Duration) {
+        if depth > 12 || start.elapsed() > budget {
+            return;
+        }
+        let Ok(rd) = std::fs::read_dir(d) else { return };
+        for e in rd.flatten() {
+            if start.elapsed() > budget {
+                return;
+            }
+            match e.file_type() {
+                Ok(t) if t.is_dir() => walk(&e.path(), acc, depth + 1, start, budget),
+                Ok(t) if t.is_file() => {
+                    // 用目录项自带的元数据，避免额外一次 stat 系统调用
+                    if let Ok(m) = e.metadata() {
+                        *acc += m.len();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut acc = 0u64;
+    walk(p, &mut acc, 0, start, budget);
+    acc / (1024 * 1024)
+}
+
+/// 扫本机常见位置，返回**已确认可用**的 Codex 运行时候选。
+///
+/// 每个候选的 `path` 都是已经过 `find_runtime_root` 验证的源根 ——
+/// 点「导入」必然能命中标志文件，不会再出现「列表里有、点了说找不到」。
+#[tauri::command(async)]
+pub fn codex_runtime_candidates() -> Vec<RuntimeCandidate> {
+    let mut out: Vec<RuntimeCandidate> = Vec::new();
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let roaming = std::env::var("APPDATA").unwrap_or_default();
+    let pf = std::env::var("ProgramFiles").unwrap_or_default();
+
+    // CLI 的两层形态：
+    //   A. `.../@openai/codex/node_modules/@openai/codex-win32-x64/vendor/.../bin/codex.exe`
+    //   B. 没有中间那层时 `vendor/x86_64-pc-windows-msvc/bin/codex.exe`
+    const CLI_MARK_DIR: &str = "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin";
+    const CLI_MARK_ALT_DIR: &str = "vendor/x86_64-pc-windows-msvc/bin";
+    const EXE: &str = "codex.exe";
+    const DESK_MARK_DIR: &str = "app";
+    const DESK_EXE: &str = "ChatGPT.exe";
+
+    let mut add = |label: String, src: PathBuf, kind: &str, out: &mut Vec<RuntimeCandidate>| {
+        let p = src.display().to_string();
+        if out.iter().any(|c| c.path == p) {
+            return;
+        }
+        /*
+         * 体积统计**限时**。
+         *
+         * ══ 为什么不能无脑递归全量统计（真机实测）══════════════════════
+         * 第一版直接 walk 整个目录算体积，npm 全局包 380MB / 几千文件，
+         * 且每次都会碰磁盘缓存未命中的文件 —— 实测把「打开对话框」拖到
+         * 数秒无响应，用户看到的是「正在扫描…」一直转。
+         *
+         * 但体积只是**辅助信息**（帮用户判断要复制多大一份），
+         * 不是必需项。所以给它一个时间预算：超时就标 0，
+         * 由前端显示成「—」。宁可少一个数字，也不要让对话框卡住。
+         */
+        let size_mb = dir_size_mb_capped(&src, std::time::Duration::from_millis(600));
+        out.push(RuntimeCandidate { label, path: p, kind: kind.into(), size_mb });
+    };
+
+    // ---------- CLI ----------
+    // 起点按「最可能命中且够快」排序；每个起点找到第一个即停
+    let mut cli_starts: Vec<(String, PathBuf)> = Vec::new();
+    if !roaming.is_empty() {
+        cli_starts.push(("npm 全局包".into(), PathBuf::from(&roaming).join("npm").join("node_modules").join("@openai").join("codex")));
+    }
+    if !local.is_empty() {
+        cli_starts.push(("%LOCALAPPDATA%\\Programs".into(), PathBuf::from(&local).join("Programs")));
+    }
+    if !home.is_empty() {
+        cli_starts.push(("用户目录 .codex".into(), PathBuf::from(&home).join(".codex")));
+        cli_starts.push(("用户目录 .local".into(), PathBuf::from(&home).join(".local")));
+    }
+    for (label, start) in cli_starts {
+        if !start.exists() {
+            continue;
+        }
+        // 先试标准形态，再试扁平形态；深度 6 足够覆盖 npm 的多层嵌套
+        if let Some(root) = find_runtime_root(&start, CLI_MARK_DIR, EXE, 6)
+            .or_else(|| find_runtime_root(&start, CLI_MARK_ALT_DIR, EXE, 6))
+        {
+            add(format!("Codex CLI（{label}）"), root, "cli", &mut out);
+        }
+    }
+
+    // ---------- 桌面端 ----------
+    //
+    // ══ 为什么不能靠遍历 WindowsApps 找（真机踩过）══════════════════════
+    // 官方桌面端以 **Appx/MSIX 包**形式安装，落在
+    // `C:\Program Files\WindowsApps\OpenAI.Codex_<版本>_x64__<hash>\`。
+    // 这个目录有特殊的 ACL：`Test-Path` 返回真、`Get-ChildItem` 却**读不出任何
+    // 条目**（连管理员都常被拒）。第一版就是拿 read_dir 去扫，结果永远扫不到，
+    // 界面显示「没在本机常见位置扫到官方桌面端」。
+    //
+    // 可靠做法是走 **MSIX 包注册表**（PowerShell 的 Get-AppxPackage 就是查它）
+    // 拿到 InstallLocation，再验证 app\ChatGPT.exe 在不在。
+    // 这样既绕开 ACL，也能顺带拿到版本号。
+    let mut desk_found = false;
+    if let Ok(ps_out) = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            /*
+             * ══ 两个坑（都真机踩过）══════════════════════════════════════
+             * ① `-Name` **不接受数组**：写 `-Name 'A','B'` 会抛
+             *    「Cannot convert 'System.Object[]' to the type 'System.String'」，
+             *    整个命令失败、静默返回空 → 界面永远显示「没扫到桌面端」。
+             *    正确做法是用通配 `-Name 'OpenAI.*'` 一次匹配多个包。
+             * ② 每行输出可能带 CRLF 与空白，下面按行 trim 后再用。
+             *
+             * 不写 -ErrorAction Stop：没装时应当静默返回空而不是抛错。
+             */
+            "(Get-AppxPackage -Name 'OpenAI.*' -ErrorAction SilentlyContinue | \
+             Where-Object { $_.InstallLocation } | \
+             Select-Object -ExpandProperty InstallLocation) -join \"`n\"",
+        ])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&ps_out.stdout);
+        for line in text.lines() {
+            let p = line.trim();
+            if p.is_empty() {
+                continue;
+            }
+            let loc = PathBuf::from(p);
+            if loc.join("app").join("ChatGPT.exe").is_file() {
+                let name = loc
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "OpenAI.Codex".into());
+                add(format!("Codex 桌面端（已安装：{name}）"), loc, "desktop", &mut out);
+                desk_found = true;
+            }
+        }
+    }
+    // 兜底：便携/解压形态（用户手动下载 zip 解压的那种），装在常规目录下
+    if !desk_found {
+        let mut desk_starts: Vec<(String, PathBuf)> = Vec::new();
+        if !local.is_empty() {
+            desk_starts.push(("%LOCALAPPDATA%".into(), PathBuf::from(&local)));
+        }
+        if !pf.is_empty() {
+            desk_starts.push(("Program Files".into(), PathBuf::from(&pf)));
+        }
+        for (label, start) in desk_starts {
+            if !start.exists() {
+                continue;
+            }
+            // 深 3 层足够覆盖 `Programs\Codex\`、`Codex\`、`ChatGPT\` 这类布局
+            if let Some(root) = find_runtime_root(&start, DESK_MARK_DIR, DESK_EXE, 3) {
+                add(format!("Codex 桌面端（{label}）"), root, "desktop", &mut out);
+                break;
+            }
+        }
+    }
+
+    out
+}
+
+/// 从本机导入 Codex **运行时**（CLI 或桌面端）到包内。
+///
+/// ══ 与 `codex_import_portable` 的分工（两者完全不同，别混）════════════
+///   codex_import_portable  → 导入 **.codex 配置**（config.toml / prompts /
+///                            skills / mcp …），解决「体检说配置缺失」；
+///                            目标是 `<root>/.codex`。
+///   本函数                 → 导入 **可执行运行时**（codex.exe 或桌面端），
+///                            解决「点了启动但报『包内桌面端缺失』」；
+///                            目标是 `<root>/runtime/codex` 或
+///                            `<root>/runtime/desktop`。
+///
+/// 之所以分开：两者来源不同、体积差三个数量级（配置 ~50MB、运行时
+/// 665MB / 2.7GB），而且导入运行时是**可选**的 —— 用户只想注入提示词时
+/// 完全不需要它。合在一个入口会让人以为不导就不能用。
+///
+/// ══ 源目录可以给「上层」（用户不用自己找到精确那一级）════════════════
+/// 用与候选探测**同一个** `find_runtime_root` 往下找标志文件。
+/// 真机教训：早先这里用精确拼接校验，而候选列表给的是拼出来的路径，
+/// 两者层级一旦不一致（npm 包里多套了一层 `node_modules/@openai/...`），
+/// 就出现「列表里有这条、点了却说找不到」。现在两边共用一个查找器，
+/// 且用户手选整个 `node_modules` 或盘符根也能自动定位。
+#[tauri::command(async)]
+pub fn codex_import_runtime(app: AppHandle, source: String, kind: String) -> Result<String, String> {
+    let src = PathBuf::from(&source);
+    if !src.is_dir() {
+        return Err(format!("所选路径不是目录：{source}"));
+    }
+    let root = runtime_root(&app);
+
+    // 目标目录 + 该类型的标志（与候选探测保持同一套常量语义）
+    let (dst, mark_dir, mark_file, human) = match kind.as_str() {
+        "cli" => (
+            root.join("runtime/codex"),
+            "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin",
+            "codex.exe",
+            "Codex CLI",
+        ),
+        "desktop" => (root.join("runtime/desktop"), "app", "ChatGPT.exe", "Codex 桌面端"),
+        other => return Err(format!("未知的运行时类型：{other}")),
+    };
+
+    // 递归定位真正的源根：标准形态优先，再退扁平形态
+    let real_src = find_runtime_root(&src, mark_dir, mark_file, 8)
+        .or_else(|| {
+            // 扁平形态：vendor/x86_64-pc-windows-msvc/bin/codex.exe
+            if kind == "cli" {
+                find_runtime_root(&src, "vendor/x86_64-pc-windows-msvc/bin", "codex.exe", 8)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            format!(
+                "在所选目录里没找到 {human} 的标志文件。\n\
+                 已向下搜索 8 层，起点：{}\n\
+                 请确认选的是 Codex 的安装目录；CLI 通常在 npm 全局 node_modules 下，\
+                 桌面端通常在 %LOCALAPPDATA%\\Programs 下。",
+                src.display()
+            )
+        })?;
+
+    // 目标已存在且非空 → 拒绝
+    if dst.exists() {
+        let empty = std::fs::read_dir(&dst).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if !empty {
+            return Err(format!(
+                "包内已存在 {human}（{}）。若要换用其它来源，请先移走该目录再导入。",
+                dst.display()
+            ));
+        }
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    emit_log(&app, format!("[runtime] 开始导入 {human}：{}", real_src.display()), "info");
+
+    // 整树复制。运行时是大目录（CLI 约 665MB / 桌面端约 2.7GB），
+    // 单文件失败不中断，最后汇总失败项。
+    let mut copied = 0usize;
+    let mut failed: Vec<String> = Vec::new();
+    fn copy_rec(dir: &Path, to: &Path, copied: &mut usize, failed: &mut Vec<String>) {
+        if let Err(e) = std::fs::create_dir_all(to) {
+            failed.push(format!("建目录 {}: {e}", to.display()));
+            return;
+        }
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            failed.push(format!("读目录失败: {}", dir.display()));
+            return;
+        };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name == "__pycache__" || name == ".tmp" { continue; }
+            let to = to.join(&name);
+            if e.path().is_dir() {
+                copy_rec(&e.path(), &to, copied, failed);
+            } else {
+                match std::fs::copy(e.path(), &to) {
+                    Ok(_) => *copied += 1,
+                    Err(err) => failed.push(format!("{name}: {err}")),
+                }
+            }
+        }
+    }
+    std::fs::create_dir_all(&dst).map_err(|e| format!("创建目标目录失败: {e}"))?;
+    copy_rec(&real_src, &dst, &mut copied, &mut failed);
+
+    let msg = if failed.is_empty() {
+        format!("{human} 导入完成：{copied} 个文件。点「一键自检」确认。")
+    } else {
+        format!(
+            "{human} 导入完成：{copied} 个文件，{} 项失败（{}）",
+            failed.len(),
+            failed.iter().take(3).cloned().collect::<Vec<_>>().join("; ")
+        )
+    };
+    emit_log(&app, msg.clone(), if failed.is_empty() { "ok" } else { "warn" });
     Ok(msg)
 }
 
