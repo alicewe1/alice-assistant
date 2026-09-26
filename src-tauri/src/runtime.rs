@@ -38,6 +38,30 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(windows)]
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 
+/// 判定一个目录是不是「运行体根」。
+///
+/// ══ 为什么不能只认 `.codex`（真机踩过）════════════════════════════════
+/// 早先这里写的是 `c.join(".codex").exists() || c.join("runtime").exists()`。
+/// `.codex` 是**包内 CODEX_HOME**，装着 config.toml / prompts / skills，
+/// 但它同时也是**用户运行数据**的落点（会话记录、状态库、记忆、缓存）。
+/// 所以「干净分发」形态会刻意不带 `.codex` —— 那种包就认不出自己了，
+/// `runtime_root` 一路走到兜底分支，返回开发机上写死的绝对路径。
+///
+/// 症状极隐蔽：程序照常启动，但读的是**别人机器的**技能库、
+/// 注入写到**别人机器的**目录，界面上完全看不出来。
+/// （真机复现：不含 .codex 的包在自己目录下启动，探测结果却是开发机路径。）
+///
+/// 现在改成认「运行体必然会有的东西」，命中**任意一个**即成立：
+///   · `.codex`   —— 完整形态（带包内配置）
+///   · `runtime`  —— 便携 Codex CLI
+///   · `_assets`  —— 素材库（技能包 / 提示词）—— 干净包必带
+///   · `profiles` —— 客户端预设与版本清单   —— 干净包必带
+fn is_runtime_root(c: &Path) -> bool {
+    [".codex", "runtime", "_assets", "profiles"]
+        .iter()
+        .any(|m| c.join(m).exists())
+}
+
 /// 运行体根目录定位（按优先级）
 ///
 /// 分发形态（扁平化后）：
@@ -54,7 +78,9 @@ const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 ///   3. exe 同级 resources\王炸codex   ← 兼容旧包装结构
 ///   4. exe 同级 王炸codex
 ///   5. Tauri resource_dir
-///   6. 开发期兜底
+///   6. 当前工作目录下的 resources（无写死路径）
+///
+/// 每个候选目录都过 `is_runtime_root` 判定；判定标准见该函数。
 pub fn runtime_root(app: &AppHandle) -> PathBuf {
     if let Ok(env) = std::env::var("ALICE_RUNTIME_ROOT") {
         if !env.is_empty() {
@@ -68,8 +94,7 @@ pub fn runtime_root(app: &AppHandle) -> PathBuf {
                 dir.join("resources/王炸codex"),
                 dir.join("王炸codex"),
             ] {
-                // 认「含 .codex 的 resources」为运行体根，避免把恰好的空目录认错
-                if c.join(".codex").exists() || c.join("runtime").exists() {
+                if is_runtime_root(&c) {
                     return c;
                 }
             }
@@ -77,19 +102,23 @@ pub fn runtime_root(app: &AppHandle) -> PathBuf {
     }
     if let Ok(dir) = app.path().resource_dir() {
         for c in [dir.join("resources"), dir.join("王炸codex"), dir.clone()] {
-            if c.join(".codex").exists() {
+            if is_runtime_root(&c) {
                 return c;
             }
         }
     }
+    // 兜底：当前工作目录及其同级的 distributions 目录。
+    // ⚠️ 这里**不允许再出现任何写死的绝对路径** —— 曾经有
+    // `F:/重构ui/新alice助手/resources` 这一项，导致换台机器（或本机换了
+    // 目录名）时，程序找不到自己的 resources 就静默回退到开发机的路径，
+    // 表现为「打开了别人的技能库、注入写到别人的目录」。
+    // 真机复现：极简包（不含 .codex）在自己目录下启动，探测结果却是
+    // F:/重构ui/新alice助手/resources —— 因为它认不出自己（判定条件只认
+    // .codex），于是走到了这一行。现在判定放宽（见 is_runtime_root），
+    // 且兜底只认相对当前目录的位置。
     let cwd = std::env::current_dir().unwrap_or_default();
-    for c in [
-        cwd.join("resources"),
-        PathBuf::from("F:/重构ui/新alice助手/resources"),
-        cwd.join("../新alice助手/resources"),
-        PathBuf::from("F:/重构ui/alice破甲/resources/王炸codex"),
-    ] {
-        if c.join(".codex").exists() {
+    for c in [cwd.join("resources"), cwd.join("resources/王炸codex")] {
+        if is_runtime_root(&c) {
             return c;
         }
     }
