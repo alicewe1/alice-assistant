@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Play, Plus, RefreshCw, RotateCcw, Save, Square, Trash2, X, Zap } from 'lucide-react'
+import { Copy, Play, Plus, RefreshCw, RotateCcw, Save, Square, Trash2, X, Zap } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { useApp } from '@/lib/app-context'
 import { Topbar } from '@/components/topbar'
@@ -102,6 +102,28 @@ export function Cloud() {
       return next
     })
   }
+
+  /**
+   * 拿去填客户端 base_url 的完整地址。
+   *
+   * ══ 为什么是完整 URL 而不是「host:port」（用户要求）═══════════════════
+   * 客户端要的是 base_url，形如 `http://127.0.0.1:14649/v1` —— 带协议头、
+   * 带 /v1 尾。只复制 `127.0.0.1:14649` 还得用户自己补两头，补错（漏 /v1、
+   * 写成 https、忘 http://）就是 404 / 连不上。所以这里直接给成品。
+   *
+   * /v1 不是可选的：代理按 `/v1/responses`、`/v1/chat/completions` 收请求
+   * （见 cloud.rs 的 join_upstream_url 注释），客户端 base_url 少了 /v1
+   * 就会拼出错误路径。
+   *
+   * ══ 为什么把通配地址归一化 ═══════════════════════════════════════════
+   * 监听可以填 `0.0.0.0`（收所有网卡）或 `::`，但那是**绑定语义**，
+   * 填进 base_url 是无效地址 —— 客户端连不上还找不到原因。
+   */
+  const copyHost =
+    cfg.listenHost === '0.0.0.0' || cfg.listenHost === '::' || cfg.listenHost.trim() === ''
+      ? '127.0.0.1'
+      : cfg.listenHost
+  const copyUrl = `http://${copyHost}:${cfg.listenPort}/v1`
 
   const refresh = useCallback(async () => {
     if (!be.IS_TAURI) return
@@ -313,6 +335,21 @@ export function Cloud() {
                   disabled={running}
                   onChange={(e) => patch({ listenPort: Number(e.target.value) || 0 })}
                 />
+                {/* 客户端要把 base_url 指到这个地址，手打容易错 —— 给一键复制。
+                    复制的是**完整 URL**（带 http:// 与 /v1），直接粘进客户端即可。 */}
+                <button
+                  className="btn btn-sm"
+                  data-tour="cloud.copy-listen"
+                  title={`复制 ${copyUrl}（客户端 base_url 直接粘这个）`}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(copyUrl).then(
+                      () => toast(`已复制 ${copyUrl}`, 'ok'),
+                      () => toast('复制失败：剪贴板不可用', 'bad'),
+                    )
+                  }}
+                >
+                  <Copy size={12} /> 复制
+                </button>
               </div>
             </div>
 
@@ -419,13 +456,13 @@ export function Cloud() {
             <div className="cfg-row">
               <div className="cfg-copy">
                 <div className="cfg-title">上游地址</div>
-                <div className="cfg-desc">例如 https://ai.example.com/v1 或 https://l.lyly.asia/v1</div>
+                <div className="cfg-desc">填你自己网关或中转站的完整地址（含 /v1）</div>
               </div>
               <input
                 className="input mono"
                 style={{ width: 280 }}
                 value={cfg.upstreamUrl}
-                placeholder="https://your-relay.example/v1"
+                placeholder="https://your-gateway.example/v1"
                 onChange={(e) => patch({ upstreamUrl: e.target.value })}
               />
             </div>

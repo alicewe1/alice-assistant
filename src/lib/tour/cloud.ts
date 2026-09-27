@@ -50,6 +50,13 @@ export const CLOUD_TOUR: TourStep[] = [
       '这一块就是代理本体。监听地址默认 127.0.0.1:14649，只在本机监听、外网连不进来；运行中地址栏是锁住的，要改端口得先停服务端。下面「随工具启动」打开后，开工具自动起、退出自动停。',
   },
   {
+    anchor: 'cloud.copy-listen',
+    placement: 'bottom',
+    title: '一键复制 base_url',
+    body:
+      '点「复制」拿到完整地址 http://127.0.0.1:14649/v1 —— 带协议头和 /v1 尾，粘进客户端的 base_url 就能用，不用自己拼两头。填了 0.0.0.0 时复制出来是 127.0.0.1：通配地址是绑定用的，填进客户端连不上。',
+  },
+  {
     anchor: 'cloud.start',
     placement: 'right',
     title: '启动服务端：真正的开关',
