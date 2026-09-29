@@ -512,6 +512,12 @@ pub struct CloudProxy {
     pub stats: Arc<Mutex<CloudStats>>,
     /// 运行中代理读取的实时配置：改开关/规则后无需重启即生效
     pub live: Arc<Mutex<CloudConfig>>,
+    /// 当前监听的地址（`host:port`）。
+    ///
+    /// 停止时要往这个地址发一个**哨兵连接**把阻塞中的 accept 唤醒
+    /// （见 serve_proxy 的注释：光置 running=false 停不掉，旧线程会一直
+    /// 持有 listener，导致下次启动报 os error 10048）。
+    pub listen_addr: Arc<Mutex<String>>,
 }
 
 pub type LogSink = Arc<dyn Fn(String, String) + Send + Sync>;
@@ -1232,6 +1238,25 @@ pub fn serve_proxy(
     live: Arc<Mutex<CloudConfig>>,
     log: LogSink,
 ) {
+    /*
+     * ══ 为什么 accept 之后才检查 running（真机 bug：停不掉）════════════════
+     *
+     * 早先的写法是：
+     *     for stream in listener.incoming() {
+     *         if !running.load(..) { break; }
+     *         ...
+     *     }
+     * 看起来合理，实际**根本停不下来**：`incoming()` 是阻塞 accept，
+     * 没有新连接进来时这个循环永远卡在 accept 里，那行 running 检查
+     * 一辈子执行不到。停止时只把 running 置 false，旧线程仍然持着
+     * listener 不放 —— 端口（默认 14649）一直被占，用户再点启动就拿到
+     *     os error 10048（通常每个套接字地址只允许使用一次）
+     * 唯一的出路是**重启整个软件**（进程退出，内核才回收 socket）。
+     *
+     * 修法：停止时主动连一次自己（见 cloud_proxy_stop 的 wake_listener），
+     * 让阻塞中的 accept 立刻返回，循环转到下一次迭代时读到 running=false
+     * 并退出、释放 listener。哨兵连接本身不做任何处理。
+     */
     for stream in listener.incoming() {
         if !running.load(Ordering::SeqCst) {
             break;
@@ -1260,6 +1285,36 @@ pub fn cloud_proxy_start(
             listen: String::new(),
             error: Some("代理已在运行".into()),
         };
+    }
+
+    /*
+     * 启动前先确保端口真的空了。
+     *
+     * 停止路径已经会把 accept 唤醒并释放 listener，但那是**异步**的
+     * （另一个线程完成 break 与 drop 需要几毫秒）。用户手快时
+     * 「停止→立刻启动」可能正好卡在这个窗口里，于是又撞上 10048。
+     * 这里先探一下端口：连得上说明旧 listener 还没走，等它一下。
+     * 最多等约 1.2 秒，等不到就交给下面的绑定重试兜底。
+     */
+    {
+        let probe = format!("{}:{}", config.listen_host, config.listen_port);
+        let (h, p) = probe.rsplit_once(':').unwrap_or(("", ""));
+        let host = if h.is_empty() || h == "0.0.0.0" || h == "::" || h == "[::]" {
+            "127.0.0.1"
+        } else {
+            h
+        };
+        let target = format!("{host}:{p}");
+        for _ in 0..12 {
+            match TcpStream::connect(&target) {
+                // 还连得上 = 旧实例没退干净，等一下再探
+                Ok(s) => {
+                    drop(s);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(_) => break,
+            }
+        }
     }
     let addr = format!("{}:{}", config.listen_host, config.listen_port);
     /*
@@ -1308,6 +1363,11 @@ pub fn cloud_proxy_start(
             }
         }
     };
+
+    // 记下实际监听的地址：停止时要用它发哨兵连接唤醒 accept
+    if let Ok(mut g) = state.listen_addr.lock() {
+        *g = addr.clone();
+    }
 
     let _ = persist_config(&app, &config);
     /*
@@ -1359,6 +1419,48 @@ pub fn cloud_proxy_start(
 #[tauri::command]
 pub fn cloud_proxy_stop(app: AppHandle, state: tauri::State<'_, CloudProxy>) -> ProxyStartResult {
     let was = state.running.swap(false, Ordering::SeqCst);
+
+    /*
+     * ══ 关键一步：把阻塞在 accept 的监听线程叫醒（真机 bug）════════════════
+     *
+     * 只把 running 置 false 是**不够的**：serve_proxy 的 for 循环卡在
+     * listener.incoming()（阻塞 accept）上，没有新连接就永远读不到那个标志，
+     * 于是线程继续持有 listener → 端口不放 → 下次启动 os error 10048，
+     * 用户只能重启软件。
+     *
+     * 这里主动往自己监听的地址连一下：accept 立刻返回，循环转到下一轮时
+     * 读到 running=false 就 break 退出，listener 随之 drop、端口释放。
+     * 连接立即关闭，服务端不会把它当真实请求处理（running 已是 false，
+     * 该连接在进入 handle_conn 前就被丢弃）。
+     */
+    if was {
+        let addr = state.listen_addr.lock().map(|g| g.clone()).unwrap_or_default();
+        if !addr.is_empty() {
+            // 通配地址（0.0.0.0 / [::]）不能直接连，换成回环
+            let target = {
+                let (h, p) = addr.rsplit_once(':').unwrap_or(("", ""));
+                let host = if h.is_empty() || h == "0.0.0.0" || h == "[::]" || h == "::" {
+                    "127.0.0.1"
+                } else {
+                    h
+                };
+                format!("{host}:{p}")
+            };
+            // 给监听线程一点时间完成 break + drop listener
+            for _ in 0..20 {
+                match TcpStream::connect(&target) {
+                    Ok(s) => {
+                        drop(s);
+                        break;
+                    }
+                    // 连不上通常意味着 listener 已经释放，正是我们要的结果
+                    Err(_) => break,
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        }
+    }
+
     if was {
         emit(&app, "[cloud] 本地服务端已停止", "warn");
     }

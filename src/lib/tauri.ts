@@ -744,8 +744,7 @@ export const profileInstall = (
 
 /** 打开系统对话框单选一个文件夹（技能注入位置用）
  *  startDir：初始目录（客户端工作路径），避免用户从 C 盘翻起 */
-export const pickOneFolder = (title?: string, startDir?: string) =>
-  invoke<string | null>('pick_one_folder', {
+export const pickOneFolder = (title?: string, startDir?: string) =>  invoke<string | null>('pick_one_folder', {
     title: title ?? null,
     startDir: startDir ?? null,
   })
@@ -918,3 +917,66 @@ export const agentDismissWrite = (name: string, id: string) =>
 /** 宿主刚写入文件 */
 export const onAgentWrite = (cb: (session: string, id: string) => void) =>
   onEvent<[string, string]>('agent:proposal', ([session, id]) => cb(session, id))
+
+/* ============================================================
+ *  其他文件：第三方注入素材的文件管理器（others 根）
+ *
+ *  素材放在 <包根>/_assets/others/ 下，预设组按「第三方文件」
+ *  引用它。备注外挂在同目录 .alice-notes.json（改文件名会连带
+ *  改变注入内容，所以备注不能塞进文件名）。
+ * ============================================================ */
+
+export interface OtherEntryDto {
+  name: string
+  path: string
+  isDir: boolean
+  /** 字节数（目录为 0） */
+  size: number
+  /** 修改时间（Unix 毫秒） */
+  modified: number
+  /** 用户写的备注（空串 = 没写） */
+  note: string
+  /** 相对 others 根的路径，作为备注的 key */
+  rel: string
+}
+
+/** 列目录（`dir` 省略 = others 根），只列当前一层 */
+export const othersList = (dir?: string) =>
+  invoke<OtherEntryDto[]>('others_list', { dir: dir ?? null })
+
+/** 写备注（空串 = 删除该备注） */
+export const othersSetNote = (rel: string, note: string) =>
+  invoke<void>('others_set_note', { rel, note })
+
+/** 新建文件夹 */
+export const othersMkdir = (parent: string | null, name: string) =>
+  invoke<string>('others_mkdir', { parent, name })
+
+/** 重命名（备注跟着迁移） */
+export const othersRename = (path: string, newName: string) =>
+  invoke<string>('others_rename', { path, newName })
+
+/** 删除文件或目录（连同其备注） */
+export const othersDelete = (path: string) => invoke<void>('others_delete', { path })
+
+/** 把外部文件/文件夹复制进 others（同名自动加序号，不覆盖） */
+export const othersImport = (parent: string | null, sources: string[]) =>
+  invoke<string[]>('others_import', { parent, sources })
+
+/** others 根目录绝对路径 */
+export const othersRootPath = () => invoke<string>('others_root_path')
+
+/** 左栏的文件夹树节点（递归，只含文件夹） */
+export interface OtherNodeDto {
+  name: string
+  path: string
+  /** 相对 others 根的路径（备注 key） */
+  rel: string
+  note: string
+  children: OtherNodeDto[]
+  /** 直属文件数（不含子文件夹里的） */
+  files: number
+}
+
+/** 完整文件夹树（左栏导航用） */
+export const othersTree = () => invoke<OtherNodeDto[]>('others_tree')

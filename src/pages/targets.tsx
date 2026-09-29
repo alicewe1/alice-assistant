@@ -789,8 +789,14 @@ export function Targets() {
   }, [clients, editor])
 
   /**
-   * `_assets/other/` 的绝对路径 —— 第三方素材（云记忆等）的约定存放处。
-   * 用户在这里自建文件夹放云记忆文件，预设组按「第三方文件」引用它。
+   * 第三方素材根目录的绝对路径。
+   *
+   * ══ 用 others 而不是 other（用户指定）════════════════════════════════
+   * 早期约定是 `_assets/other/`，但界面上一直没入口，用户只能自己开资源
+   * 管理器丢文件。现在新增「其他文件」页专门管这块，目录统一改成
+   * `_assets/others/`，与页面里的 other(s) 命名一致，避免两处叫法不同
+   * 导致「界面上找不到刚才放的文件」。
+   *
    * 选源对话框默认从这里打开，省得用户去翻 _assets。
    */
   const [otherDir, setOtherDir] = useState<string | undefined>(undefined)
@@ -799,8 +805,9 @@ export function Targets() {
     let alive = true
     void (async () => {
       try {
-        const root = await be.runtimeRoot()
-        if (alive && root) setOtherDir(`${root.replace(/[\\/]+$/, '')}\\_assets\\other`)
+        // 后端会顺便把目录建出来（首次进页时它可能还不存在）
+        const p = await be.othersRootPath()
+        if (alive && p) setOtherDir(p)
       } catch {
         /* 取不到就让对话框用系统默认位置 */
       }
@@ -925,7 +932,7 @@ export function Targets() {
    * 所以给两个明确按钮，用户点哪个就是哪个 —— 比「先弹文件夹、取消再弹文件」
    * 那种连续弹窗清楚得多。
    *
-   * 初始目录固定为 _assets/other（第三方素材约定存放处）。
+   * 初始目录固定为 others（第三方素材约定存放处，见「其他文件」页）。
    */
   const pickThirdPartySourceDir = async (i: number) => {
     try {
@@ -1799,14 +1806,15 @@ export function Targets() {
 
             {/*
               第三方文件：用户自选「源（文件或文件夹）→ 落点」的条目。
-              云记忆场景：在 _assets/other/ 下自建文件夹放 memory 文件，
+              云记忆场景：在「其他文件」页（_assets/others/）建目录放素材，
               这里引用它并放到客户端读云记忆的位置，可勾「只读」防客户端篡改。
             */}
             <div className="field">
               <span>第三方文件（源 → 落点，可多个）</span>
               <div className="sub" style={{ fontSize: 10.5, marginBottom: 4 }}>
                 源可以是**文件或文件夹**：文件直接放到落点；文件夹整包合并过去。
-                云记忆建议放在 <code>_assets/other/</code> 下自建目录里。
+                素材建议放在「其他文件」页（<code>_assets/others/</code>）里统一管理，
+                那边能写备注分类；这里点选源时会默认打开该目录。
                 勾「只读」可防止客户端改写云记忆。
               </div>
               {thirdPartyPairs.map((t, i) => {
@@ -1862,7 +1870,7 @@ export function Targets() {
                       <input
                         className="input mono"
                         style={{ flex: 1 }}
-                        placeholder={isFileSrc ? '_assets/other/memory/default_memory.md' : '_assets/other/memory'}
+                        placeholder={isFileSrc ? '_assets/others/memory/default_memory.md' : '_assets/others/memory'}
                         value={srcPath}
                         onChange={(e) => updateThirdParty(i, { sourceDir: e.target.value })}
                       />

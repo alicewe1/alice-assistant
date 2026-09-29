@@ -8,6 +8,7 @@ mod runtime;
 mod winproc;
 mod alias;
 mod import_skill;
+mod others;
 
 use tauri::Emitter;
 use tauri::Manager;
@@ -151,6 +152,15 @@ fn main() {
             inject::custom_version_delete,
             inject::custom_version_install,
             inject::browse_dir,
+            // 其他文件：第三方注入素材的文件管理器（带备注分类）
+            others::others_list,
+            others::others_set_note,
+            others::others_mkdir,
+            others::others_rename,
+            others::others_delete,
+            others::others_import,
+            others::others_root_path,
+            others::others_tree,
             // 版本清单（manifest 驱动）
             profiles::profiles_list,
             profiles::profile_get,

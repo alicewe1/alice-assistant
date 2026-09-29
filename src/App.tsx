@@ -13,6 +13,7 @@ import { Dashboard } from '@/pages/dashboard'
 import { Targets } from '@/pages/targets'
 import { Skills } from '@/pages/skills'
 import { Prompts } from '@/pages/prompts'
+import { Others } from '@/pages/others'
 import { Session } from '@/pages/session'
 import { Messages } from '@/pages/messages'
 import { Runtime } from '@/pages/runtime'
@@ -41,6 +42,7 @@ function Shell() {
       'targets',
       'skills',
       'prompts',
+      'others',
       'session',
       'messages',
       'runtime',
@@ -101,6 +103,7 @@ function Shell() {
               {page === 'targets' && <Targets />}
               {page === 'skills' && <Skills />}
               {page === 'prompts' && <Prompts />}
+              {page === 'others' && <Others />}
               {page === 'session' && <Session />}
               {page === 'messages' && <Messages />}
               {page === 'runtime' && <Runtime />}

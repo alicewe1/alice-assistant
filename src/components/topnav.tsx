@@ -8,6 +8,7 @@ import {
   CloudCog,
   MapPin,
   Sparkles,
+  FolderTree,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useApp } from '@/lib/app-context'
@@ -19,6 +20,7 @@ export type PageId =
   | 'targets'
   | 'skills'
   | 'prompts'
+  | 'others'
   | 'session'
   | 'messages'
   | 'runtime'
@@ -29,9 +31,11 @@ export const TOPNAV: { id: PageId; idx: string; label: string; icon: LucideIcon 
   { id: 'targets', idx: '02', label: '目标', icon: MapPin },
   { id: 'skills', idx: '03', label: '技能库', icon: Sparkles },
   { id: 'prompts', idx: '04', label: '提示词', icon: ScrollText },
-  { id: 'session', idx: '05', label: '会话', icon: MessageSquareCode },
-  { id: 'runtime', idx: '06', label: 'Alice-codex', icon: TerminalSquare },
-  { id: 'cloud', idx: '07', label: '云过审', icon: CloudCog },
+  // 其他文件：管理第三方注入素材（_assets/others），放在提示词旁边
+  { id: 'others', idx: '05', label: '其他文件', icon: FolderTree },
+  { id: 'session', idx: '06', label: '会话', icon: MessageSquareCode },
+  { id: 'runtime', idx: '07', label: 'Alice-codex', icon: TerminalSquare },
+  { id: 'cloud', idx: '08', label: '云过审', icon: CloudCog },
 ]
 
 /**
