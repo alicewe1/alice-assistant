@@ -214,8 +214,8 @@ The app probes for the runtime root in this order (`runtime_root` in `runtime.rs
 
 1. `ALICE_RUNTIME_ROOT` environment variable (troubleshooting / custom deployment)
 2. `resources/` next to the exe
-3. `resources/王炸codex` next to the exe (legacy wrapper layout)
-4. `王炸codex/` next to the exe
+3. `resources/alice-codex` next to the exe (legacy wrapper layout)
+4. `alice-codex/` next to the exe
 5. Tauri `resource_dir`
 6. Development fallback (current working directory)
 

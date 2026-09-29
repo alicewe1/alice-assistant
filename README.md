@@ -241,8 +241,8 @@ if ($ascii.Contains($asset)) { "OK：已内嵌 $asset" } else { "异常：这是
 
 1. `ALICE_RUNTIME_ROOT` 环境变量（排障 / 自定义部署）
 2. exe 同级 `resources/`
-3. exe 同级 `resources/王炸codex`（兼容旧包装结构）
-4. exe 同级 `王炸codex/`
+3. exe 同级 `resources/alice-codex`（兼容旧包装结构）
+4. exe 同级 `alice-codex/`
 5. Tauri `resource_dir`
 6. 开发期兜底（当前工作目录）
 
