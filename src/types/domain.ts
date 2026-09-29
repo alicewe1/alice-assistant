@@ -83,7 +83,7 @@ export interface RunSession {
   endedAt: number | null
 }
 
-// ---------- 运行时（王炸codex） ----------
+// ---------- 运行时（Alice-codex） ----------
 
 /** 原 x1 的 7 项路径体检 */
 export type RuntimeCheckKey =

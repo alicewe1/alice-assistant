@@ -24,7 +24,7 @@ import type { CodexPromptOptionDto, CodexSkillDto } from '@/lib/tauri'
 import type { LogLine, RuntimeCheckKey } from '@/types/domain'
 
 /**
- * Alice-codex（原「王炸codex」）
+ * Alice-codex 页
  *
  * 这一页管的是**包内那一套便携运行体**：codex 运行时、桌面端、技能库、
  * 提示词库、MCP 依赖。所有路径都从包根推导，拷到别的机器照常可用。

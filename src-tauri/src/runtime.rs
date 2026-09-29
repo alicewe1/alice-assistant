@@ -1,4 +1,4 @@
-// 运行时探针与王炸codex 生命周期管理
+// 运行时探针与 Alice-codex 生命周期管理
 //
 // 设计要点：
 // - 路径全部从 runtime root 推导，不写死盘符（环境变量 ALICE_RUNTIME_ROOT 可覆盖）
@@ -67,7 +67,7 @@ fn is_runtime_root(c: &Path) -> bool {
 /// 分发形态（扁平化后）：
 ///   新alice助手\
 ///   ├── 新alice助手.exe
-///   └── resources\        ← 运行体直接展开在这（不再有 王炸codex 包装层）
+///   └── resources\        ← 运行体直接展开在这（不再有旧包装层）
 ///       ├── .codex\  runtime\  tools\  data\  workspace\
 ///       ├── _assets\        素材库（技能/提示词）
 ///       └── profiles\       版本清单
@@ -75,8 +75,8 @@ fn is_runtime_root(c: &Path) -> bool {
 /// 顺序：
 ///   1. ALICE_RUNTIME_ROOT 环境变量（排障/自定义部署）
 ///   2. exe 同级 resources            ← 正式分发形态
-///   3. exe 同级 resources\王炸codex   ← 兼容旧包装结构
-///   4. exe 同级 王炸codex
+///   3. exe 同级 resources\alice-codex  ← 兼容旧包装结构
+///   4. exe 同级 alice-codex
 ///   5. Tauri resource_dir
 ///   6. 当前工作目录下的 resources（无写死路径）
 ///
@@ -91,8 +91,8 @@ pub fn runtime_root(app: &AppHandle) -> PathBuf {
         if let Some(dir) = exe.parent() {
             for c in [
                 dir.join("resources"),
-                dir.join("resources/王炸codex"),
-                dir.join("王炸codex"),
+                dir.join("resources/alice-codex"),
+                dir.join("alice-codex"),
             ] {
                 if is_runtime_root(&c) {
                     return c;
@@ -101,7 +101,7 @@ pub fn runtime_root(app: &AppHandle) -> PathBuf {
         }
     }
     if let Ok(dir) = app.path().resource_dir() {
-        for c in [dir.join("resources"), dir.join("王炸codex"), dir.clone()] {
+        for c in [dir.join("resources"), dir.join("alice-codex"), dir.clone()] {
             if is_runtime_root(&c) {
                 return c;
             }
@@ -117,7 +117,7 @@ pub fn runtime_root(app: &AppHandle) -> PathBuf {
     // .codex），于是走到了这一行。现在判定放宽（见 is_runtime_root），
     // 且兜底只认相对当前目录的位置。
     let cwd = std::env::current_dir().unwrap_or_default();
-    for c in [cwd.join("resources"), cwd.join("resources/王炸codex")] {
+    for c in [cwd.join("resources"), cwd.join("resources/alice-codex")] {
         if is_runtime_root(&c) {
             return c;
         }

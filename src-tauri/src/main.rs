@@ -66,8 +66,8 @@ fn main() {
                 // 与 runtime_root 同口径：认「含 .codex 或 runtime 的 resources」为运行体根
                 let root = [
                     dir.join("resources"),
-                    dir.join("resources/王炸codex"),
-                    dir.join("王炸codex"),
+                    dir.join("resources/alice-codex"),
+                    dir.join("alice-codex"),
                 ]
                 .into_iter()
                 .find(|c| c.join(".codex").exists() || c.join("runtime").exists())
@@ -88,7 +88,7 @@ fn main() {
         .manage(alias::AliasGuards::default())
         .manage(cloud::CloudProxy::default())
         .invoke_handler(tauri::generate_handler![
-            // 运行时 / 王炸codex
+            // 运行时 / Alice-codex
             runtime::engine_probe,
             runtime::runtime_root_path,
             runtime::codex_launch,

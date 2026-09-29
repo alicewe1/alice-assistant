@@ -1,4 +1,4 @@
-﻿// 阶段一 mock 数据层。结构对齐原版 Alice asar 提取结果。
+// 阶段一 mock 数据层。结构对齐原版 Alice asar 提取结果。
 import type {
   CloudState,
   PromptTemplate,
@@ -211,10 +211,10 @@ export const seedSkills: SkillPackage[] = [
     updatedAt: now - 3 * H,
   },
   {
-    id: 'sk-wangzha',
-    name: '王炸技能库',
+    id: 'sk-alice',
+    name: 'Alice 技能库',
     versionIds: [],
-    dir: 'resources/王炸codex/.codex/skills',
+    dir: 'resources/alice-codex/.codex/skills',
     modules: 290,
     enabled: true,
     description: '通用技能库：290 目录 / 2107 文件，全部版本可用',
@@ -246,7 +246,7 @@ export const seedRuntime: RuntimeState = {
   counts: { skills: 290, prompts: 3 },
   runtimeMB: 380,
   hasKey: true,
-  root: 'F:\\重构ui\\alice破甲\\resources\\王炸codex',
+  root: 'C:\\Alice\\resources',
   // 浏览器预览时的占位来源（真实清单由 engine_probe 返回）
   promptSources: [
     { rel: '_assets/prompts', label: '内置提示词库', path: '', count: 3, active: true },
